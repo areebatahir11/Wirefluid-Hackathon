@@ -2,7 +2,7 @@
 pragma solidity ^0.8.19;
 
 import "forge-std/Test.sol";
-import "../src/Predict4Good.sol";
+import {PredictForGood} from "../src/Predict4Good.sol";
 
 contract PredictForGoodTest is Test {
     PredictForGood public predict;
