@@ -95,7 +95,7 @@ contract PredictForGood is ERC721, Ownable, ReentrancyGuard {
     mapping(uint256 => address[]) internal matchPredictors;
     mapping(address => Charity) public charities;
     mapping(uint256 => NftMetadata) public nftMetadata;
-    mapping(address => uint256[]) public userNFTs;
+    mapping(address => uint256[]) public userNfts;
     mapping(address => mapping(NFTTier => bool)) internal tierMinted;
     mapping(address => uint256) public correctPredictions;
 
@@ -140,26 +140,21 @@ contract PredictForGood is ERC721, Ownable, ReentrancyGuard {
         NFTTier oldTier,
         NFTTier newTier
     );
-
     // ─────────────────────────────────────────────────────────
-    //  MODIFIERS
+    //  MODIFIERS (OPTIMIZED)
     // ─────────────────────────────────────────────────────────
     modifier matchExists(uint256 matchId) {
-        require(matches[matchId].startTime != 0, "Match not found");
+        _matchExists(matchId);
         _;
     }
+
     modifier matchIsActive(uint256 matchId) {
-        require(
-            matches[matchId].status == MatchStatus.ACTIVE,
-            "Match not active"
-        );
+        _matchIsActive(matchId);
         _;
     }
+
     modifier predictionOpen(uint256 matchId) {
-        require(
-            block.timestamp < matches[matchId].lockTime,
-            "Predictions are locked"
-        );
+        _predictionOpen(matchId);
         _;
     }
 
@@ -260,7 +255,7 @@ contract PredictForGood is ERC721, Ownable, ReentrancyGuard {
     }
 
     /// @notice Set NFT image URIs (IPFS links)
-    function setNFTUris(
+    function setNftUris(
         string calldata bronze,
         string calldata silver,
         string calldata gold
@@ -366,7 +361,7 @@ contract PredictForGood is ERC721, Ownable, ReentrancyGuard {
     }
 
     /// @notice Mint NFT badge after correct prediction
-    function mintPredictorNFT(
+    function mintPredictorNft(
         uint256 matchId
     ) external nonReentrant matchExists(matchId) {
         require(
@@ -391,14 +386,14 @@ contract PredictForGood is ERC721, Ownable, ReentrancyGuard {
             predictionsAtMint: correctPredictions[msg.sender]
         });
 
-        userNFTs[msg.sender].push(tokenId);
+        userNfts[msg.sender].push(tokenId);
         _safeMint(msg.sender, tokenId);
 
         emit NFTMinted(msg.sender, tokenId, eligible);
     }
 
     /// @notice Upgrade NFT Bronze→Silver or Silver→Gold
-    function upgradeNFT(uint256 tokenId) external nonReentrant {
+    function upgradeNft(uint256 tokenId) external nonReentrant {
         require(ownerOf(tokenId) == msg.sender, "Not your NFT");
 
         NftMetadata storage meta = nftMetadata[tokenId];
@@ -469,13 +464,13 @@ contract PredictForGood is ERC721, Ownable, ReentrancyGuard {
         return charities[wallet];
     }
 
-    function getUserNFTs(
+    function getUserNfts(
         address user
     ) external view returns (uint256[] memory) {
-        return userNFTs[user];
+        return userNfts[user];
     }
 
-    function getNFTMetadata(
+    function getNftMetadata(
         uint256 tokenId
     ) external view returns (NftMetadata memory) {
         return nftMetadata[tokenId];
@@ -571,5 +566,26 @@ contract PredictForGood is ERC721, Ownable, ReentrancyGuard {
         if (correct >= SILVER_THRESHOLD) return NFTTier.SILVER;
         if (correct >= BRONZE_THRESHOLD) return NFTTier.BRONZE;
         return NFTTier.NONE;
+    }
+
+    // ─────────────────────────────────────────────────────────
+    //  INTERNAL VALIDATION FUNCTIONS
+    // ─────────────────────────────────────────────────────────
+    function _matchExists(uint256 matchId) internal view {
+        require(matches[matchId].startTime != 0, "Match not found");
+    }
+
+    function _matchIsActive(uint256 matchId) internal view {
+        require(
+            matches[matchId].status == MatchStatus.ACTIVE,
+            "Match not active"
+        );
+    }
+
+    function _predictionOpen(uint256 matchId) internal view {
+        require(
+            block.timestamp < matches[matchId].lockTime,
+            "Predictions are locked"
+        );
     }
 }
