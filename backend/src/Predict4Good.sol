@@ -4,7 +4,12 @@ import {Ownable} from "../lib/openzeppelin-contracts/contracts/access/Ownable.so
 import {ReentrancyGuard} from "../lib/openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 
 contract PredictForGood is Ownable, ReentrancyGuard {
+    uint256 public constant DONATION_PERCENT = 60;
+    uint256 public constant WINNER_PERCENT = 35;
+    uint256 public constant PLATFORM_PERCENT = 5;
+
     uint256 public matchCounter;
+    // uint256 public platformBalance; //iska logic dekhna ha kay kaya ha
 
     enum MatchStatus {
         ACTIVE,
@@ -25,7 +30,10 @@ contract PredictForGood is Ownable, ReentrancyGuard {
         uint256 startTime;
         uint256 lockTime; // predictions will be locked
         MatchStatus status;
+        PredictionOutcome result;
         uint256 totalStaked;
+        uint256 winnerPool;
+        uint256 donationPool;
     }
     struct Prediction {
         PredictionOutcome choice;
@@ -47,6 +55,15 @@ contract PredictForGood is Ownable, ReentrancyGuard {
         uint256 indexed matchId,
         uint256 stakeAmount
     );
+
+    event MatchResolved(
+        uint256 indexed matchId,
+        PredictionOutcome result,
+        uint256 charityAmount,
+        uint256 winnerPool
+    );
+
+    event MatchCancelled(uint256 indexed matchId);
 
     mapping(uint256 => Match) public matches;
     mapping(uint256 => mapping(address => Prediction)) public predictions;
@@ -97,7 +114,10 @@ contract PredictForGood is Ownable, ReentrancyGuard {
             startTime: startTime,
             lockTime: lockTime,
             status: MatchStatus.ACTIVE,
-            totalStaked: 0
+            result: PredictionOutcome.NONE,
+            totalStaked: 0,
+            winnerPool: 0,
+            charityPool: 0
         });
 
         emit MatchStarted(matchId, teamA, teamB, startTime, lockTime);
@@ -147,5 +167,41 @@ contract PredictForGood is Ownable, ReentrancyGuard {
         address user
     ) external view returns (Prediction memory) {
         return predictions[matchId][user];
+    }
+
+    function resolveMatch(
+        uint256 matchId,
+        PredictionOutcome result
+    ) external onlyOwner matchExists(matchId) matchIsActive(matchId) {
+        // Match shuru ho chuka hona chahiye tab hi resolve hoga
+        require(
+            block.timestamp >= matches[matchId].startTime,
+            "Match has not started yet"
+        );
+        require(result != PredictionOutcome.NONE, "Invalid result");
+
+        Match storage m = matches[matchId];
+
+        // Status aur result set karo
+        m.status = MatchStatus.RESOLVED;
+        m.result = result;
+
+        uint256 donationAmt = (m.totalStaked * DONATION_PERCENT) / 100;
+        uint256 winnerAmt = (m.totalStaked * WINNER_PERCENT) / 100;
+        uint256 platformAmt = (m.totalStaked * PLATFORM_PERCENT) / 100;
+
+        // Contract ke andar track karo
+        m.donationPool = donationAmt;
+        m.winnerPool = winnerAmt;
+        platformBalance += platformAmt;
+
+        emit MatchResolved(matchId, result, donationAmt, winnerAmt);
+    }
+
+    function cancelMatch(
+        uint256 matchId
+    ) external onlyOwner matchExists(matchId) matchIsActive(matchId) {
+        matches[matchId].status = MatchStatus.CANCELLED;
+        emit MatchCancelled(matchId);
     }
 }
