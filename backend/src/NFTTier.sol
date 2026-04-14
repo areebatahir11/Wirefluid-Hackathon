@@ -54,8 +54,12 @@ contract RewardNFT is ERC721 {
     }
 
     modifier onlyCore() {
-        require(msg.sender == core, "Not Core");
+        _onlyCore();
         _;
+    }
+
+    function _onlyCore() internal view {
+        require(msg.sender == core, "Not Core");
     }
 
     // ─────────────────────────────────────────────────────────

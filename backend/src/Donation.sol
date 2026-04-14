@@ -57,13 +57,18 @@ contract Donation is ReentrancyGuard {
     }
 
     modifier onlyOwner() {
-        require(msg.sender == owner, "Not owner");
+        _onlyOwner();
         _;
     }
 
     // ─────────────────────────────────────────────────────────
     //  INTERNAL
     // ─────────────────────────────────────────────────────────
+
+    function _onlyOwner() internal view {
+        require(msg.sender == owner, "Not owner");
+    }
+
     function _registerCharity(
         address wallet,
         string memory name,

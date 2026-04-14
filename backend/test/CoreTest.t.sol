@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-import {Test, console} from "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 import {Core} from "../src/core.sol";
 import {Donation} from "../src/Donation.sol";
 import {RewardNFT} from "../src/NFTTier.sol";
@@ -170,7 +170,8 @@ contract CoreTest is Test {
         _resolveMatch(id, Core.PredictionOutcome.TEAM_A);
 
         // 65% of 4 ETH = 2.6 ETH → split among 3 charities ≈ 0.866 ETH each
-        uint256 expected = (4 ether * 65) / 100 / 3;
+        uint256 total = 4 ether;
+        uint256 expected = (total * 65) / 100 / 3;
         assertApproxEqAbs(c1.balance - beforeC1, expected, 2); // allow 2 wei dust
     }
 }
