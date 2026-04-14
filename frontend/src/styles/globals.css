@@ -1,1 +1,481 @@
+@import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Orbitron:wght@400;700;900&family=Inter:wght@300;400;500&display=swap');
 @import "tailwindcss";
+
+:root {
+    --neon-green: #00ff88;
+    --neon-blue: #00d4ff;
+    --neon-gold: #ffd700;
+    --dark-bg: #020a14;
+    --card-bg: rgba(0, 20, 40, 0.75);
+    --border-glow: rgba(0, 212, 255, 0.3);
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html,
+body {
+    background: var(--dark-bg);
+    color: #e8f4f8;
+    font-family: 'Rajdhani', sans-serif;
+    overflow-x: hidden;
+    scroll-behavior: smooth;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar {
+    width: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: #020a14;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--neon-blue);
+    border-radius: 3px;
+}
+
+/* ── Glass card ── */
+.glass {
+    background: var(--card-bg);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--border-glow);
+    border-radius: 16px;
+}
+
+.glass-dark {
+    background: rgba(0, 8, 20, 0.85);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(0, 212, 255, 0.15);
+    border-radius: 16px;
+}
+
+/* ── Neon text ── */
+.text-neon-green {
+    color: var(--neon-green);
+}
+
+.text-neon-blue {
+    color: var(--neon-blue);
+}
+
+.text-neon-gold {
+    color: var(--neon-gold);
+}
+
+.glow-green {
+    text-shadow: 0 0 20px rgba(0, 255, 136, 0.8), 0 0 40px rgba(0, 255, 136, 0.4);
+}
+
+.glow-blue {
+    text-shadow: 0 0 20px rgba(0, 212, 255, 0.8), 0 0 40px rgba(0, 212, 255, 0.4);
+}
+
+/* ── Font families ── */
+.font-orbitron {
+    font-family: 'Orbitron', monospace;
+}
+
+.font-rajdhani {
+    font-family: 'Rajdhani', sans-serif;
+}
+
+/* ── Gradient buttons ── */
+.btn-primary {
+    position: relative;
+    background: linear-gradient(135deg, #00d4ff, #0066ff);
+    color: white;
+    font-family: 'Orbitron', monospace;
+    font-weight: 700;
+    font-size: 0.8rem;
+    letter-spacing: 0.1em;
+    padding: 0.65rem 1.5rem;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    overflow: hidden;
+    transition: all 0.3s ease;
+    text-transform: uppercase;
+}
+
+.btn-primary:hover {
+    box-shadow: 0 0 25px rgba(0, 212, 255, 0.7), 0 0 50px rgba(0, 212, 255, 0.3);
+    transform: translateY(-1px);
+}
+
+.btn-primary:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+.btn-green {
+    background: linear-gradient(135deg, #00ff88, #00cc66);
+    color: #001a0d;
+    font-family: 'Orbitron', monospace;
+    font-weight: 700;
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    padding: 0.65rem 1.5rem;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    text-transform: uppercase;
+}
+
+.btn-green:hover {
+    box-shadow: 0 0 25px rgba(0, 255, 136, 0.7);
+    transform: translateY(-1px);
+}
+
+.btn-green:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+/* ── Border glow animation on hover ── */
+.btn-glow-border {
+    position: relative;
+    overflow: hidden;
+}
+
+.btn-glow-border::before {
+    content: '';
+    position: absolute;
+    top: -2px;
+    left: -2px;
+    right: -2px;
+    bottom: -2px;
+    background: linear-gradient(90deg, #00d4ff, #00ff88, #0066ff, #00d4ff);
+    background-size: 300% 300%;
+    border-radius: 10px;
+    z-index: -1;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    animation: borderSpin 2s linear infinite;
+}
+
+.btn-glow-border:hover::before {
+    opacity: 1;
+}
+
+@keyframes borderSpin {
+    0% {
+        background-position: 0% 50%;
+    }
+
+    50% {
+        background-position: 100% 50%;
+    }
+
+    100% {
+        background-position: 0% 50%;
+    }
+}
+
+/* ── Card hover ── */
+.card-hover {
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.card-hover:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 20px 60px rgba(0, 212, 255, 0.2);
+}
+
+/* ── Prediction choice buttons ── */
+.choice-btn {
+    flex: 1;
+    padding: 0.75rem;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.04);
+    color: #a0b4c0;
+    font-family: 'Orbitron', monospace;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    cursor: pointer;
+    transition: all 0.25s ease;
+    text-transform: uppercase;
+}
+
+.choice-btn:hover {
+    border-color: var(--neon-blue);
+    color: var(--neon-blue);
+    background: rgba(0, 212, 255, 0.08);
+}
+
+.choice-btn.selected-a {
+    border-color: var(--neon-green);
+    color: var(--neon-green);
+    background: rgba(0, 255, 136, 0.12);
+    box-shadow: 0 0 16px rgba(0, 255, 136, 0.3);
+}
+
+.choice-btn.selected-b {
+    border-color: #ff4466;
+    color: #ff4466;
+    background: rgba(255, 68, 102, 0.12);
+    box-shadow: 0 0 16px rgba(255, 68, 102, 0.3);
+}
+
+.choice-btn.selected-draw {
+    border-color: var(--neon-gold);
+    color: var(--neon-gold);
+    background: rgba(255, 215, 0, 0.12);
+    box-shadow: 0 0 16px rgba(255, 215, 0, 0.3);
+}
+
+/* ── Timer ── */
+.timer-ring {
+    font-family: 'Orbitron', monospace;
+    font-weight: 900;
+}
+
+/* ── NFT tier colors ── */
+.tier-bronze {
+    border-color: #cd7f32 !important;
+    background: rgba(205, 127, 50, 0.1) !important;
+}
+
+.tier-silver {
+    border-color: #c0c0c0 !important;
+    background: rgba(192, 192, 192, 0.1) !important;
+}
+
+.tier-gold {
+    border-color: #ffd700 !important;
+    background: rgba(255, 215, 0, 0.1) !important;
+}
+
+/* ── Pulse dot ── */
+.pulse-dot {
+    width: 8px;
+    height: 8px;
+    background: var(--neon-green);
+    border-radius: 50%;
+    animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+
+    0%,
+    100% {
+        opacity: 1;
+        transform: scale(1);
+        box-shadow: 0 0 8px rgba(0, 255, 136, 0.6);
+    }
+
+    50% {
+        opacity: 0.6;
+        transform: scale(0.8);
+        box-shadow: 0 0 4px rgba(0, 255, 136, 0.3);
+    }
+}
+
+/* ── Toast ── */
+.toast {
+    position: fixed;
+    bottom: 2rem;
+    right: 2rem;
+    z-index: 9999;
+    padding: 0.85rem 1.5rem;
+    border-radius: 10px;
+    font-family: 'Rajdhani', sans-serif;
+    font-weight: 600;
+    font-size: 0.95rem;
+    animation: slideIn 0.3s ease;
+    max-width: 360px;
+}
+
+.toast-success {
+    background: rgba(0, 255, 136, 0.15);
+    border: 1px solid var(--neon-green);
+    color: var(--neon-green);
+    box-shadow: 0 0 20px rgba(0, 255, 136, 0.2);
+}
+
+.toast-error {
+    background: rgba(255, 68, 102, 0.15);
+    border: 1px solid #ff4466;
+    color: #ff4466;
+    box-shadow: 0 0 20px rgba(255, 68, 102, 0.2);
+}
+
+.toast-info {
+    background: rgba(0, 212, 255, 0.15);
+    border: 1px solid var(--neon-blue);
+    color: var(--neon-blue);
+    box-shadow: 0 0 20px rgba(0, 212, 255, 0.2);
+}
+
+@keyframes slideIn {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+/* ── Stat cards ── */
+.stat-card {
+    background: rgba(0, 20, 40, 0.6);
+    border: 1px solid rgba(0, 212, 255, 0.2);
+    border-radius: 12px;
+    padding: 1.25rem 1.5rem;
+    text-align: center;
+    transition: all 0.3s ease;
+}
+
+.stat-card:hover {
+    border-color: rgba(0, 212, 255, 0.5);
+    box-shadow: 0 0 30px rgba(0, 212, 255, 0.15);
+}
+
+/* ── Navbar ── */
+.navbar {
+    background: rgba(2, 10, 20, 0.9);
+    backdrop-filter: blur(20px);
+    border-bottom: 1px solid rgba(0, 212, 255, 0.15);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+
+/* ── Input ── */
+.input-dark {
+    background: rgba(0, 20, 40, 0.8);
+    border: 1px solid rgba(0, 212, 255, 0.25);
+    border-radius: 8px;
+    color: #e8f4f8;
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 1rem;
+    padding: 0.6rem 1rem;
+    outline: none;
+    width: 100%;
+    transition: border-color 0.2s ease;
+}
+
+.input-dark:focus {
+    border-color: var(--neon-blue);
+    box-shadow: 0 0 12px rgba(0, 212, 255, 0.2);
+}
+
+.input-dark::placeholder {
+    color: rgba(168, 196, 210, 0.4);
+}
+
+/* ── Stadium overlay ── */
+.stadium-overlay {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to bottom,
+            rgba(2, 10, 20, 0.5) 0%,
+            rgba(2, 10, 20, 0.3) 30%,
+            rgba(2, 10, 20, 0.7) 70%,
+            rgba(2, 10, 20, 0.97) 100%);
+}
+
+/* ── Loading spinner ── */
+.spinner {
+    width: 18px;
+    height: 18px;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    display: inline-block;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* ── Locked badge ── */
+.locked-badge {
+    background: rgba(255, 68, 102, 0.15);
+    border: 1px solid #ff4466;
+    color: #ff4466;
+    font-family: 'Orbitron', monospace;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    padding: 0.25rem 0.65rem;
+    border-radius: 4px;
+    text-transform: uppercase;
+}
+
+.active-badge {
+    background: rgba(0, 255, 136, 0.1);
+    border: 1px solid var(--neon-green);
+    color: var(--neon-green);
+    font-family: 'Orbitron', monospace;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    padding: 0.25rem 0.65rem;
+    border-radius: 4px;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+/* ── Hero animations ── */
+@keyframes fadeUp {
+    from {
+        opacity: 0;
+        transform: translateY(30px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.fade-up-1 {
+    animation: fadeUp 0.8s ease forwards;
+}
+
+.fade-up-2 {
+    animation: fadeUp 0.8s ease 0.2s forwards;
+    opacity: 0;
+}
+
+.fade-up-3 {
+    animation: fadeUp 0.8s ease 0.4s forwards;
+    opacity: 0;
+}
+
+.fade-up-4 {
+    animation: fadeUp 0.8s ease 0.6s forwards;
+    opacity: 0;
+}
+
+/* ── Scanline effect ── */
+.scanlines {
+    background: repeating-linear-gradient(0deg,
+            transparent,
+            transparent 2px,
+            rgba(0, 0, 0, 0.08) 2px,
+            rgba(0, 0, 0, 0.08) 4px);
+    pointer-events: none;
+}
