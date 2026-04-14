@@ -8,7 +8,7 @@ contract CreateMatches is Script {
     function run() external {
         vm.startBroadcast();
 
-        Core core = Core(payable(0x91A14eb36e74403695912B8ECfc4Ba9036F4FaD1));
+        Core core = Core(payable(0x4c272a52FE77eBb39F5d3EFf162AdAeD277e07A7));
 
         string[6] memory teams = [
             "Lahore Qalandars",
@@ -16,7 +16,8 @@ contract CreateMatches is Script {
             "Islamabad United",
             "Multan Sultans",
             "Peshawar Zalmi",
-            "Quetta Gladiators"
+            "Quetta Gladiators",
+            "Rawalpindi Pindiz"
         ];
 
         uint256 base = block.timestamp;
