@@ -2,243 +2,211 @@
 import { useState, useEffect } from 'react'
 import { ethers } from 'ethers'
 import {
-  getCoreRead,
+  getProvider,
+  ensureCorrectNetwork,
   getCoreContract,
+  getCoreRead,
   getNFTRead,
   getNFTContract,
   getDonationRead,
-  getProvider,
-  ensureCorrectNetwork,
-  shortenAddr,
+  fetchUserPredictions,
   formatETH,
-  STATUS,
+  shortenAddr,
   OUTCOME,
+  STATUS,
+  TIER_REQ,
   TIER_NAME,
+  ipfsToHttp,
 } from '../../lib/ethers'
 import NFTCard from '../../components/NFTCard'
 import { toast } from '../../components/Toast'
 
 export default function Profile() {
   const [account, setAccount] = useState(null)
-  const [profile, setProfile] = useState(null)
+  const [correct, setCorrect] = useState(0)
+  const [myMatches, setMyMatches] = useState([]) // matches user predicted
   const [nfts, setNfts] = useState([])
-  const [userMatches, setUserMatches] = useState([]) // matches user predicted
   const [charities, setCharities] = useState([])
   const [loading, setLoading] = useState(true)
-  const [upgradingId, setUpgradingId] = useState(null)
-  const [minting, setMinting] = useState({}) // matchId -> bool
-  const [claiming, setClaiming] = useState({}) // matchId -> bool
 
-  // ── Get account ──────────────────────────────────────
+  // Per-action loading states keyed by matchId or tokenId
+  const [busy, setBusy] = useState({})
+  const setBusyFor = (key, val) => setBusy((p) => ({ ...p, [key]: val }))
+
+  // ── Account ──────────────────────────────────────────────
   useEffect(() => {
-    const check = async () => {
+    const init = async () => {
       if (!window.ethereum) return
-      const provider = getProvider()
-      const accounts = await provider.send('eth_accounts', [])
+      const accounts = await getProvider().send('eth_accounts', [])
       if (accounts.length) setAccount(accounts[0])
     }
-    check()
-    if (window.ethereum) {
-      window.ethereum.on('accountsChanged', (accs) =>
-        setAccount(accs[0] || null),
-      )
-    }
+    init()
+    window.ethereum?.on('accountsChanged', (a) => setAccount(a[0] || null))
   }, [])
 
-  // ── Load profile data ────────────────────────────────
+  // ── Load everything when account is known ────────────────
   useEffect(() => {
     if (!account) {
       setLoading(false)
       return
     }
-
-    const load = async () => {
-      try {
-        setLoading(true)
-        const core = getCoreRead()
-        const nftRead = getNFTRead()
-        const donation = getDonationRead()
-
-        // Correct predictions count
-        const correct = await core.correctPredictions(account)
-
-        // NFT token IDs
-        const tokenIds = await nftRead.getUserNfts(account)
-        const nftData = await Promise.all(
-          tokenIds.map(async (id) => {
-            const meta = await nftRead.getNftMetadata(id)
-            return { tokenId: Number(id), metadata: meta }
-          }),
-        )
-        setNfts(nftData)
-
-        // All matches — find ones user predicted
-        const totalMatches = await core.matchCounter()
-        const matchList = []
-        for (let i = 1; i <= Number(totalMatches); i++) {
-          try {
-            const pred = await core.getUserPrediction(i, account)
-            if (Number(pred.stakeAmount) > 0) {
-              const match = await core.getMatch(i)
-              matchList.push({
-                matchId: Number(match.matchId),
-                teamA: match.teamA,
-                teamB: match.teamB,
-                status: Number(match.status),
-                result: Number(match.result),
-                winnerPool: match.winnerPool,
-                prediction: {
-                  choice: Number(pred.choice),
-                  stakeAmount: pred.stakeAmount,
-                  claimed: pred.claimed,
-                },
-              })
-            }
-          } catch {}
-        }
-        setUserMatches(matchList)
-
-        // Charities
-        const charityAddrs = await donation.getAllCharities()
-        const charityData = await Promise.all(
-          charityAddrs.map(async (addr) => {
-            const info = await donation.getCharity(addr)
-            return {
-              addr,
-              name: info.name,
-              totalReceived: info.totalReceived,
-              isActive: info.isActive,
-            }
-          }),
-        )
-        setCharities(charityData)
-
-        setProfile({ correct: Number(correct) })
-      } catch (e) {
-        console.error('Profile load error:', e)
-        toast.error('Failed to load profile data')
-      } finally {
-        setLoading(false)
-      }
-    }
-    load()
+    load(account)
   }, [account])
 
-  // ── Claim reward ─────────────────────────────────────
-  const handleClaimReward = async (matchId) => {
+  const load = async (addr) => {
     try {
-      setClaiming((p) => ({ ...p, [matchId]: true }))
+      setLoading(true)
+      const core = getCoreRead()
+      const nftRead = getNFTRead()
+      const donation = getDonationRead()
+
+      const [correctCount, tokenIds, charityAddrs, predictions] =
+        await Promise.all([
+          core.correctPredictions(addr),
+          nftRead.getUserNfts(addr),
+          donation.getAllCharities(),
+          fetchUserPredictions(addr), // scans all matches the user predicted
+        ])
+
+      setCorrect(Number(correctCount))
+      setMyMatches(predictions)
+
+      // NFT metadata — also fetch tokenURI for IPFS image
+      const nftData = await Promise.all(
+        tokenIds.map(async (id) => {
+          const [meta, uri] = await Promise.all([
+            nftRead.getNftMetadata(id),
+            nftRead.tokenURI(id).catch(() => ''),
+          ])
+          return { tokenId: Number(id), metadata: { ...meta, tokenURI: uri } }
+        }),
+      )
+      setNfts(nftData)
+
+      // Charities
+      const cData = await Promise.all(
+        charityAddrs.map(async (a) => {
+          const info = await donation.getCharity(a)
+          return { addr: a, name: info.name, received: info.totalReceived }
+        }),
+      )
+      setCharities(cData)
+    } catch (e) {
+      console.error(e)
+      toast.error('Failed to load profile')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // ── Claim reward ─────────────────────────────────────────
+  const claimReward = async (matchId) => {
+    try {
+      setBusyFor(`reward_${matchId}`, true)
       await ensureCorrectNetwork()
       const core = await getCoreContract()
       const tx = await core.claimReward(matchId)
       toast.info('Claiming reward...')
       await tx.wait()
-      toast.success('Reward claimed successfully! 🎉')
-      // Refresh
-      setUserMatches((prev) =>
-        prev.map((m) =>
+      toast.success('Reward claimed! 💰')
+      setMyMatches((p) =>
+        p.map((m) =>
           m.matchId === matchId
             ? { ...m, prediction: { ...m.prediction, claimed: true } }
             : m,
         ),
       )
+      setCorrect((p) => p) // correct count already counted at claimReward tx on-chain
+      await load(account) // refresh all
     } catch (e) {
       toast.error(e?.reason || e?.message || 'Claim failed')
     } finally {
-      setClaiming((p) => ({ ...p, [matchId]: false }))
+      setBusyFor(`reward_${matchId}`, false)
     }
   }
 
-  // ── Claim refund ─────────────────────────────────────
-  const handleClaimRefund = async (matchId) => {
+  // ── Claim refund ─────────────────────────────────────────
+  const claimRefund = async (matchId) => {
     try {
-      setClaiming((p) => ({ ...p, [matchId]: true }))
+      setBusyFor(`refund_${matchId}`, true)
       await ensureCorrectNetwork()
       const core = await getCoreContract()
       const tx = await core.claimRefund(matchId)
       toast.info('Processing refund...')
       await tx.wait()
       toast.success('Refund received!')
-      setUserMatches((prev) =>
-        prev.map((m) =>
-          m.matchId === matchId
-            ? { ...m, prediction: { ...m.prediction, claimed: true } }
-            : m,
-        ),
-      )
+      await load(account)
     } catch (e) {
       toast.error(e?.reason || e?.message || 'Refund failed')
     } finally {
-      setClaiming((p) => ({ ...p, [matchId]: false }))
+      setBusyFor(`refund_${matchId}`, false)
     }
   }
 
-  // ── Mint NFT ─────────────────────────────────────────
-  const handleMintNFT = async (matchId) => {
+  // ── Mint NFT (after winning, calls mintPredictorNFT) ─────
+  const mintNFT = async (matchId) => {
     try {
-      setMinting((p) => ({ ...p, [matchId]: true }))
+      setBusyFor(`mint_${matchId}`, true)
       await ensureCorrectNetwork()
       const core = await getCoreContract()
       const tx = await core.mintPredictorNFT(matchId)
-      toast.info('Minting NFT...')
+      toast.info('Minting NFT badge...')
       await tx.wait()
       toast.success('NFT minted! Check your collection 🎖️')
-      // Refresh NFTs
-      const nftRead = getNFTRead()
-      const tokenIds = await nftRead.getUserNfts(account)
-      const nftData = await Promise.all(
-        tokenIds.map(async (id) => {
-          const meta = await nftRead.getNftMetadata(id)
-          return { tokenId: Number(id), metadata: meta }
-        }),
-      )
-      setNfts(nftData)
+      await load(account)
     } catch (e) {
       toast.error(e?.reason || e?.message || 'Mint failed')
     } finally {
-      setMinting((p) => ({ ...p, [matchId]: false }))
+      setBusyFor(`mint_${matchId}`, false)
     }
   }
 
-  // ── Upgrade NFT ──────────────────────────────────────
-  const handleUpgradeNFT = async (tokenId) => {
+  // ── Upgrade NFT ──────────────────────────────────────────
+  const upgradeNFT = async (tokenId) => {
     try {
-      setUpgradingId(tokenId)
+      setBusyFor(`upgrade_${tokenId}`, true)
       await ensureCorrectNetwork()
       const core = await getCoreContract()
       const tx = await core.upgradeNFT(tokenId)
       toast.info('Upgrading NFT...')
       await tx.wait()
       toast.success('NFT upgraded! ⬆️')
-      // Refresh
-      const nftRead = getNFTRead()
-      const tokenIds = await nftRead.getUserNfts(account)
-      const nftData = await Promise.all(
-        tokenIds.map(async (id) => {
-          const meta = await nftRead.getNftMetadata(id)
-          return { tokenId: Number(id), metadata: meta }
-        }),
-      )
-      setNfts(nftData)
+      await load(account)
     } catch (e) {
       toast.error(e?.reason || e?.message || 'Upgrade failed')
     } finally {
-      setUpgradingId(null)
+      setBusyFor(`upgrade_${tokenId}`, false)
     }
   }
 
-  const OUTCOME_LABEL = { 0: 'None', 1: 'Team A', 2: 'Team B', 3: 'Draw' }
+  // ── Helpers ───────────────────────────────────────────────
+  const choiceLabel = (m) => {
+    if (m.prediction.choice === OUTCOME.TEAM_A) return m.teamA
+    if (m.prediction.choice === OUTCOME.TEAM_B) return m.teamB
+    return 'Draw'
+  }
 
-  // ── Render ───────────────────────────────────────────
+  const isWinner = (m) =>
+    m.status === STATUS.RESOLVED && m.prediction.choice === m.result
+
+  const isCancelled = (m) => m.status === STATUS.CANCELLED
+
+  // ── Render ───────────────────────────────────────────────
   return (
-    <div style={{ minHeight: '100vh', position: 'relative' }}>
+    <div
+      style={{
+        minHeight: '100vh',
+        position: 'relative',
+        paddingBottom: '4rem',
+      }}
+    >
       <div
         style={{
           position: 'fixed',
           inset: 0,
           zIndex: 0,
           background:
-            'radial-gradient(ellipse at 30% 20%, rgba(0,100,200,0.08) 0%, transparent 60%), radial-gradient(ellipse at 70% 80%, rgba(0,255,136,0.05) 0%, transparent 60%)',
+            'radial-gradient(ellipse at 20% 10%, rgba(0,80,180,.06), transparent 55%), radial-gradient(ellipse at 80% 80%, rgba(0,200,100,.04), transparent 55%)',
         }}
       />
 
@@ -246,20 +214,20 @@ export default function Profile() {
         style={{
           position: 'relative',
           zIndex: 10,
-          maxWidth: '1100px',
+          maxWidth: 1100,
           margin: '0 auto',
-          padding: '2.5rem 1.5rem',
+          padding: '2rem 1.5rem',
         }}
       >
         {/* Header */}
-        <div style={{ marginBottom: '2.5rem' }}>
+        <div style={{ marginBottom: '2rem' }}>
           <div
             style={{
-              fontSize: '0.7rem',
-              fontFamily: "'Orbitron', monospace",
-              letterSpacing: '0.15em',
+              fontSize: '.6rem',
+              fontFamily: "'Orbitron',monospace",
+              letterSpacing: '.16em',
               color: 'var(--neon-green)',
-              marginBottom: '0.5rem',
+              marginBottom: '.4rem',
             }}
           >
             PREDICTOR PROFILE
@@ -267,7 +235,7 @@ export default function Profile() {
           <h1
             className="font-orbitron"
             style={{
-              fontSize: 'clamp(1.75rem, 4vw, 2.5rem)',
+              fontSize: 'clamp(1.6rem,4vw,2.4rem)',
               fontWeight: 900,
               color: '#fff',
             }}
@@ -282,33 +250,34 @@ export default function Profile() {
             style={{
               textAlign: 'center',
               padding: '5rem 2rem',
-              background: 'rgba(0,212,255,0.03)',
-              border: '1px solid rgba(0,212,255,0.1)',
-              borderRadius: 16,
+              background: 'rgba(0,212,255,.03)',
+              border: '1px solid rgba(0,212,255,.1)',
+              borderRadius: 14,
             }}
           >
             <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🔌</div>
             <div
               className="font-orbitron"
               style={{
-                fontSize: '1.1rem',
-                marginBottom: '0.5rem',
+                fontSize: '1rem',
                 color: 'var(--neon-blue)',
+                marginBottom: '.4rem',
               }}
             >
               Wallet Not Connected
             </div>
             <div
               style={{
-                fontFamily: "'Rajdhani', sans-serif",
-                color: 'rgba(168,196,210,0.5)',
+                fontFamily: "'Rajdhani',sans-serif",
+                color: 'rgba(180,210,230,.4)',
               }}
             >
-              Connect your MetaMask wallet to view your profile
+              Connect MetaMask to see your predictions and NFTs
             </div>
           </div>
         )}
 
+        {/* Loading */}
         {account && loading && (
           <div
             style={{
@@ -319,18 +288,23 @@ export default function Profile() {
           >
             <div
               className="spinner"
-              style={{ width: 36, height: 36, margin: '0 auto 1rem' }}
+              style={{
+                width: 36,
+                height: 36,
+                margin: '0 auto 1rem',
+                borderWidth: 3,
+              }}
             />
             <div
               className="font-orbitron"
-              style={{ fontSize: '0.85rem', letterSpacing: '0.1em' }}
+              style={{ fontSize: '.8rem', letterSpacing: '.1em' }}
             >
               Loading profile...
             </div>
           </div>
         )}
 
-        {account && !loading && profile && (
+        {account && !loading && (
           <div
             style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}
           >
@@ -338,96 +312,140 @@ export default function Profile() {
             <div
               className="glass"
               style={{
-                padding: '1.75rem',
+                padding: '1.5rem',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '2rem',
+                gap: '1.75rem',
                 flexWrap: 'wrap',
               }}
             >
               <div
                 style={{
-                  width: 72,
-                  height: 72,
+                  width: 64,
+                  height: 64,
                   borderRadius: '50%',
+                  flexShrink: 0,
                   background:
-                    'linear-gradient(135deg, var(--neon-blue), var(--neon-green))',
+                    'linear-gradient(135deg,var(--neon-blue),var(--neon-green))',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   fontSize: '1.75rem',
-                  flexShrink: 0,
                 }}
               >
                 🏏
               </div>
-              <div style={{ flex: 1 }}>
+
+              <div style={{ flex: 1, minWidth: 200 }}>
                 <div
                   style={{
-                    fontSize: '0.7rem',
-                    fontFamily: "'Orbitron', monospace",
-                    letterSpacing: '0.1em',
-                    color: 'rgba(168,196,210,0.5)',
-                    marginBottom: '0.35rem',
+                    fontSize: '.6rem',
+                    fontFamily: "'Orbitron',monospace",
+                    letterSpacing: '.1em',
+                    color: 'rgba(180,210,230,.4)',
+                    marginBottom: '.28rem',
                   }}
                 >
                   CONNECTED WALLET
                 </div>
                 <div
-                  className="font-orbitron"
                   style={{
-                    fontSize: '1rem',
+                    fontFamily: "'Orbitron',monospace",
+                    fontSize: '.82rem',
                     color: '#fff',
-                    marginBottom: '0.25rem',
                     wordBreak: 'break-all',
                   }}
                 >
                   {account}
                 </div>
               </div>
+
               <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
-                <StatMini
-                  value={profile.correct}
-                  label="Correct Predictions"
+                <MiniStat
+                  value={correct}
+                  label="Correct"
                   color="var(--neon-green)"
                 />
-                <StatMini
+                <MiniStat
                   value={nfts.length}
-                  label="NFTs Owned"
+                  label="NFTs"
                   color="var(--neon-gold)"
                 />
-                <StatMini
-                  value={userMatches.length}
-                  label="Matches Predicted"
+                <MiniStat
+                  value={myMatches.length}
+                  label="Predicted"
                   color="var(--neon-blue)"
                 />
               </div>
             </div>
 
-            {/* ── My Predictions / Actions ── */}
-            {userMatches.length > 0 && (
-              <Section title="My Predictions" icon="🎯">
+            {/* ── NFT progress bar ── */}
+            {correct > 0 && (
+              <div className="glass-sm" style={{ padding: '1.1rem 1.3rem' }}>
+                <div
+                  style={{
+                    fontSize: '.6rem',
+                    fontFamily: "'Orbitron',monospace",
+                    letterSpacing: '.12em',
+                    color: 'rgba(180,210,230,.38)',
+                    marginBottom: '.9rem',
+                  }}
+                >
+                  RANK PROGRESS
+                </div>
+                <div
+                  style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}
+                >
+                  <ProgressBar
+                    label="Bronze"
+                    emoji="🥉"
+                    required={1}
+                    current={correct}
+                    color="#cd7f32"
+                  />
+                  <ProgressBar
+                    label="Silver"
+                    emoji="🥈"
+                    required={5}
+                    current={correct}
+                    color="#c0c0c0"
+                  />
+                  <ProgressBar
+                    label="Gold"
+                    emoji="🏆"
+                    required={10}
+                    current={correct}
+                    color="#ffd700"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* ── My Predictions ── */}
+            <Section title="My Predictions" icon="🎯" count={myMatches.length}>
+              {myMatches.length === 0 ? (
+                <Empty text="No predictions yet — go to the Arena and place your first bet!" />
+              ) : (
                 <div
                   style={{
                     display: 'flex',
                     flexDirection: 'column',
-                    gap: '0.75rem',
+                    gap: '.6rem',
                   }}
                 >
-                  {userMatches.map((m) => {
-                    const isResolved = m.status === STATUS.RESOLVED
-                    const isCancelled = m.status === STATUS.CANCELLED
-                    const isWinner =
-                      isResolved && m.prediction.choice === m.result
-                    const isPending = !isResolved && !isCancelled
-                    const alreadyClaimed = m.prediction.claimed
+                  {myMatches.map((m) => {
+                    const won = isWinner(m)
+                    const cancelled = isCancelled(m)
+                    const claimed = m.prediction.claimed
+                    const resolved = m.status === STATUS.RESOLVED
+                    const pending = !resolved && !cancelled
 
                     return (
                       <div
                         key={m.matchId}
-                        className="glass-dark"
+                        className="glass-sm"
                         style={{
-                          padding: '1rem 1.25rem',
+                          padding: '1rem 1.2rem',
                           display: 'flex',
                           alignItems: 'center',
                           gap: '1rem',
@@ -435,13 +453,13 @@ export default function Profile() {
                         }}
                       >
                         {/* Match info */}
-                        <div style={{ flex: 1, minWidth: 200 }}>
+                        <div style={{ flex: 1, minWidth: 180 }}>
                           <div
                             style={{
                               fontWeight: 700,
-                              color: '#fff',
                               fontSize: '1rem',
-                              marginBottom: '0.2rem',
+                              color: '#fff',
+                              marginBottom: '.18rem',
                             }}
                           >
                             <span style={{ color: 'var(--neon-green)' }}>
@@ -449,8 +467,9 @@ export default function Profile() {
                             </span>
                             <span
                               style={{
-                                color: 'rgba(168,196,210,0.4)',
-                                margin: '0 0.4rem',
+                                color: 'rgba(180,210,230,.35)',
+                                margin: '0 .35rem',
+                                fontSize: '.85rem',
                               }}
                             >
                               vs
@@ -459,19 +478,16 @@ export default function Profile() {
                           </div>
                           <div
                             style={{
-                              fontSize: '0.8rem',
-                              color: 'rgba(168,196,210,0.5)',
+                              fontSize: '.78rem',
+                              color: 'rgba(180,210,230,.45)',
                             }}
                           >
-                            Predicted:{' '}
+                            Your pick:{' '}
                             <span style={{ color: 'var(--neon-blue)' }}>
-                              {m.prediction.choice === OUTCOME.TEAM_A
-                                ? m.teamA
-                                : m.prediction.choice === OUTCOME.TEAM_B
-                                  ? m.teamB
-                                  : 'Draw'}
-                            </span>{' '}
-                            · Stake:{' '}
+                              {choiceLabel(m)}
+                            </span>
+                            {'  '}·{'  '}
+                            Stake:{' '}
                             <span style={{ color: 'var(--neon-gold)' }}>
                               {formatETH(m.prediction.stakeAmount)} ETH
                             </span>
@@ -480,45 +496,20 @@ export default function Profile() {
 
                         {/* Status badge */}
                         <div>
-                          {isPending && (
-                            <span className="active-badge">Pending</span>
-                          )}
-                          {isResolved && isWinner && (
-                            <span
-                              style={{
-                                background: 'rgba(0,255,136,0.1)',
-                                border: '1px solid var(--neon-green)',
-                                color: 'var(--neon-green)',
-                                fontFamily: "'Orbitron', monospace",
-                                fontSize: '0.65rem',
-                                fontWeight: 700,
-                                letterSpacing: '0.1em',
-                                padding: '0.25rem 0.65rem',
-                                borderRadius: 4,
-                              }}
-                            >
-                              🏆 WON
+                          {pending && (
+                            <span className="badge-active">
+                              <span className="pulse-dot" />
+                              Pending
                             </span>
                           )}
-                          {isResolved && !isWinner && (
-                            <span className="locked-badge">Lost</span>
+                          {resolved && won && (
+                            <span className="badge-win">🏆 Won</span>
                           )}
-                          {isCancelled && (
-                            <span
-                              style={{
-                                background: 'rgba(255,140,0,0.1)',
-                                border: '1px solid #ff8c00',
-                                color: '#ffaa44',
-                                fontFamily: "'Orbitron', monospace",
-                                fontSize: '0.65rem',
-                                fontWeight: 700,
-                                letterSpacing: '0.1em',
-                                padding: '0.25rem 0.65rem',
-                                borderRadius: 4,
-                              }}
-                            >
-                              Cancelled
-                            </span>
+                          {resolved && !won && (
+                            <span className="badge-lost">Lost</span>
+                          )}
+                          {cancelled && (
+                            <span className="badge-resolved">Cancelled</span>
                           )}
                         </div>
 
@@ -526,72 +517,79 @@ export default function Profile() {
                         <div
                           style={{
                             display: 'flex',
-                            gap: '0.5rem',
+                            gap: '.45rem',
                             flexWrap: 'wrap',
                           }}
                         >
-                          {isResolved && isWinner && !alreadyClaimed && (
-                            <>
-                              <button
-                                className="btn-green"
-                                onClick={() => handleClaimReward(m.matchId)}
-                                disabled={claiming[m.matchId]}
-                                style={{
-                                  fontSize: '0.7rem',
-                                  padding: '0.5rem 1rem',
-                                }}
-                              >
-                                {claiming[m.matchId] ? (
-                                  <span className="spinner" />
-                                ) : (
-                                  '💰 Claim Reward'
-                                )}
-                              </button>
-                              <button
-                                className="btn-primary"
-                                onClick={() => handleMintNFT(m.matchId)}
-                                disabled={minting[m.matchId]}
-                                style={{
-                                  fontSize: '0.7rem',
-                                  padding: '0.5rem 1rem',
-                                }}
-                              >
-                                {minting[m.matchId] ? (
-                                  <span className="spinner" />
-                                ) : (
-                                  '🎖️ Mint NFT'
-                                )}
-                              </button>
-                            </>
-                          )}
-                          {isCancelled && !alreadyClaimed && (
+                          {/* Claim reward */}
+                          {resolved && won && !claimed && (
                             <button
-                              className="btn-primary"
-                              onClick={() => handleClaimRefund(m.matchId)}
-                              disabled={claiming[m.matchId]}
+                              className="btn-green"
+                              onClick={() => claimReward(m.matchId)}
+                              disabled={busy[`reward_${m.matchId}`]}
                               style={{
-                                fontSize: '0.7rem',
-                                padding: '0.5rem 1rem',
-                                background:
-                                  'linear-gradient(135deg, #ff8800, #ff4400)',
+                                fontSize: '.68rem',
+                                padding: '.48rem 1rem',
                               }}
                             >
-                              {claiming[m.matchId] ? (
+                              {busy[`reward_${m.matchId}`] ? (
                                 <span className="spinner" />
                               ) : (
-                                '↩️ Claim Refund'
+                                '💰 Claim'
                               )}
                             </button>
                           )}
-                          {alreadyClaimed && (
-                            <span
+
+                          {/* Mint NFT — only after claiming reward (correct count incremented) */}
+                          {resolved && won && !busy[`reward_${m.matchId}`] && (
+                            <button
+                              className="btn-primary"
+                              onClick={() => mintNFT(m.matchId)}
+                              disabled={busy[`mint_${m.matchId}`]}
                               style={{
-                                fontSize: '0.75rem',
-                                color: 'rgba(168,196,210,0.35)',
-                                fontFamily: "'Rajdhani', sans-serif",
+                                fontSize: '.68rem',
+                                padding: '.48rem 1rem',
                               }}
                             >
-                              ✓ Claimed
+                              {busy[`mint_${m.matchId}`] ? (
+                                <span className="spinner" />
+                              ) : (
+                                '🎖️ Mint NFT'
+                              )}
+                            </button>
+                          )}
+
+                          {/* Refund */}
+                          {cancelled && !claimed && (
+                            <button
+                              className="btn-primary"
+                              onClick={() => claimRefund(m.matchId)}
+                              disabled={busy[`refund_${m.matchId}`]}
+                              style={{
+                                fontSize: '.68rem',
+                                padding: '.48rem 1rem',
+                                background:
+                                  'linear-gradient(135deg,#ff7700,#ff3300)',
+                              }}
+                            >
+                              {busy[`refund_${m.matchId}`] ? (
+                                <span className="spinner" />
+                              ) : (
+                                '↩️ Refund'
+                              )}
+                            </button>
+                          )}
+
+                          {/* Claimed */}
+                          {claimed && (
+                            <span
+                              style={{
+                                fontSize: '.72rem',
+                                color: 'rgba(180,210,230,.28)',
+                                fontFamily: "'Rajdhani',sans-serif",
+                              }}
+                            >
+                              ✓ Settled
                             </span>
                           )}
                         </div>
@@ -599,40 +597,24 @@ export default function Profile() {
                     )
                   })}
                 </div>
-              </Section>
-            )}
+              )}
+            </Section>
 
             {/* ── NFT Collection ── */}
-            <Section title="My NFT Collection" icon="🎖️">
+            {/*
+              NFT images are fetched from IPFS via tokenURI() → ipfsToHttp()
+              Set URIs first: call nft.setUris(bronzeIPFS, silverIPFS, goldIPFS)
+              from deployer wallet after uploading images to Pinata.
+            */}
+            <Section title="NFT Collection" icon="🎖️" count={nfts.length}>
               {nfts.length === 0 ? (
-                <div
-                  style={{
-                    textAlign: 'center',
-                    padding: '2.5rem',
-                    color: 'rgba(168,196,210,0.35)',
-                    fontFamily: "'Rajdhani', sans-serif",
-                  }}
-                >
-                  <div style={{ fontSize: '2.5rem', marginBottom: '0.75rem' }}>
-                    🏅
-                  </div>
-                  <div
-                    className="font-orbitron"
-                    style={{ fontSize: '0.9rem', marginBottom: '0.35rem' }}
-                  >
-                    No NFTs yet
-                  </div>
-                  <div style={{ fontSize: '0.85rem' }}>
-                    Win matches and mint your first badge
-                  </div>
-                </div>
+                <Empty text="Win matches, then mint your Predictor badge here. Bronze → Silver → Gold." />
               ) : (
                 <div
                   style={{
                     display: 'grid',
-                    gridTemplateColumns:
-                      'repeat(auto-fill, minmax(180px, 1fr))',
-                    gap: '1rem',
+                    gridTemplateColumns: 'repeat(auto-fill,minmax(170px,1fr))',
+                    gap: '.9rem',
                   }}
                 >
                   {nfts.map(({ tokenId, metadata }) => (
@@ -640,94 +622,65 @@ export default function Profile() {
                       key={tokenId}
                       tokenId={tokenId}
                       metadata={metadata}
-                      onUpgrade={handleUpgradeNFT}
-                      upgrading={upgradingId === tokenId}
+                      onUpgrade={upgradeNFT}
+                      upgrading={!!busy[`upgrade_${tokenId}`]}
                     />
                   ))}
                 </div>
               )}
 
-              {/* NFT progress */}
-              {profile.correct > 0 && (
+              {/* IPFS setup note */}
+              {nfts.length > 0 && !nfts[0].metadata.tokenURI && (
                 <div
                   style={{
-                    marginTop: '1.5rem',
-                    padding: '1rem 1.25rem',
-                    background: 'rgba(0,0,0,0.3)',
-                    borderRadius: 10,
-                    border: '1px solid rgba(255,255,255,0.05)',
+                    marginTop: '1rem',
+                    padding: '.75rem 1rem',
+                    background: 'rgba(255,215,0,.05)',
+                    border: '1px solid rgba(255,215,0,.18)',
+                    borderRadius: 8,
+                    fontSize: '.78rem',
+                    color: 'rgba(255,215,0,.65)',
+                    fontFamily: "'Rajdhani',sans-serif",
                   }}
                 >
-                  <div
-                    style={{
-                      fontSize: '0.75rem',
-                      fontFamily: "'Orbitron', monospace",
-                      color: 'rgba(168,196,210,0.4)',
-                      letterSpacing: '0.1em',
-                      marginBottom: '0.75rem',
-                    }}
-                  >
-                    PREDICTION RANK PROGRESS
-                  </div>
-                  <div
-                    style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}
-                  >
-                    <ProgressTier
-                      label="Bronze"
-                      required={1}
-                      current={profile.correct}
-                      color="#cd7f32"
-                      emoji="🥉"
-                    />
-                    <ProgressTier
-                      label="Silver"
-                      required={5}
-                      current={profile.correct}
-                      color="#c0c0c0"
-                      emoji="🥈"
-                    />
-                    <ProgressTier
-                      label="Gold"
-                      required={10}
-                      current={profile.correct}
-                      color="#ffd700"
-                      emoji="🏆"
-                    />
-                  </div>
+                  💡 NFT images will appear once you upload to Pinata and call{' '}
+                  <code>nft.setUris()</code> with your CIDs.
                 </div>
               )}
             </Section>
 
-            {/* ── Charity Impact ── */}
-            <Section title="Charity Impact" icon="💚">
+            {/* ── Charity impact ── */}
+            <Section title="Charity Impact" icon="💚" count={charities.length}>
               <div
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
-                  gap: '1rem',
+                  gridTemplateColumns: 'repeat(auto-fill,minmax(270px,1fr))',
+                  gap: '.9rem',
                 }}
               >
                 {charities.map((c) => (
                   <div
                     key={c.addr}
-                    className="glass-dark"
-                    style={{ padding: '1.25rem' }}
+                    className="glass-sm"
+                    style={{ padding: '1.15rem' }}
                   >
                     <div
                       style={{
                         fontWeight: 700,
+                        fontSize: '1rem',
                         color: '#fff',
-                        marginBottom: '0.35rem',
+                        marginBottom: '.25rem',
                       }}
                     >
                       {c.name}
                     </div>
                     <div
                       style={{
-                        fontSize: '0.75rem',
-                        color: 'rgba(168,196,210,0.4)',
-                        marginBottom: '0.75rem',
-                        fontFamily: "'Orbitron', monospace",
+                        fontSize: '.68rem',
+                        fontFamily: "'Orbitron',monospace",
+                        color: 'rgba(180,210,230,.35)',
+                        marginBottom: '.8rem',
+                        wordBreak: 'break-all',
                       }}
                     >
                       {shortenAddr(c.addr)}
@@ -737,16 +690,17 @@ export default function Profile() {
                         fontSize: '1.25rem',
                         fontWeight: 700,
                         color: 'var(--neon-green)',
-                        fontFamily: "'Orbitron', monospace",
+                        fontFamily: "'Orbitron',monospace",
                       }}
                     >
-                      {formatETH(c.totalReceived)} ETH
+                      {formatETH(c.received)}{' '}
+                      <span style={{ fontSize: '.7rem' }}>ETH</span>
                     </div>
                     <div
                       style={{
-                        fontSize: '0.75rem',
-                        color: 'rgba(168,196,210,0.4)',
-                        marginTop: '0.2rem',
+                        fontSize: '.7rem',
+                        color: 'rgba(180,210,230,.38)',
+                        marginTop: '.18rem',
                       }}
                     >
                       total received
@@ -762,33 +716,48 @@ export default function Profile() {
   )
 }
 
-// ── Sub-components ────────────────────────────────────────
+/* ── Sub-components ────────────────────────────────────── */
 
-function Section({ title, icon, children }) {
+function Section({ title, icon, count, children }) {
   return (
     <div>
       <div
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: '0.6rem',
-          marginBottom: '1rem',
+          gap: '.55rem',
+          marginBottom: '.9rem',
         }}
       >
-        <span style={{ fontSize: '1.1rem' }}>{icon}</span>
+        <span style={{ fontSize: '1.05rem' }}>{icon}</span>
         <h2
           className="font-orbitron"
-          style={{ fontSize: '1.1rem', fontWeight: 700, color: '#fff' }}
+          style={{ fontSize: '1.05rem', fontWeight: 700, color: '#fff' }}
         >
           {title}
         </h2>
+        {count !== undefined && count > 0 && (
+          <span
+            style={{
+              fontFamily: "'Orbitron',monospace",
+              fontSize: '.62rem',
+              color: 'var(--neon-blue)',
+              background: 'rgba(0,212,255,.1)',
+              border: '1px solid rgba(0,212,255,.22)',
+              padding: '.15rem .55rem',
+              borderRadius: 99,
+            }}
+          >
+            {count}
+          </span>
+        )}
       </div>
       {children}
     </div>
   )
 }
 
-function StatMini({ value, label, color }) {
+function MiniStat({ value, label, color }) {
   return (
     <div style={{ textAlign: 'center' }}>
       <div
@@ -799,9 +768,9 @@ function StatMini({ value, label, color }) {
       </div>
       <div
         style={{
-          fontSize: '0.7rem',
-          color: 'rgba(168,196,210,0.45)',
-          fontFamily: "'Rajdhani', sans-serif",
+          fontSize: '.65rem',
+          color: 'rgba(180,210,230,.4)',
+          fontFamily: "'Rajdhani',sans-serif",
         }}
       >
         {label}
@@ -810,42 +779,70 @@ function StatMini({ value, label, color }) {
   )
 }
 
-function ProgressTier({ label, required, current, color, emoji }) {
-  const done = current >= required
+function ProgressBar({ label, emoji, required, current, color }) {
   const pct = Math.min(100, (current / required) * 100)
+  const done = current >= required
   return (
-    <div style={{ flex: 1, minWidth: 160 }}>
+    <div style={{ flex: 1, minWidth: 140 }}>
       <div
         style={{
           display: 'flex',
           justifyContent: 'space-between',
-          marginBottom: '0.35rem',
+          marginBottom: '.35rem',
         }}
       >
-        <span style={{ fontSize: '0.8rem', color, fontWeight: 600 }}>
+        <span style={{ fontSize: '.8rem', color, fontWeight: 600 }}>
           {emoji} {label}
         </span>
-        <span style={{ fontSize: '0.75rem', color: 'rgba(168,196,210,0.45)' }}>
+        <span style={{ fontSize: '.7rem', color: 'rgba(180,210,230,.4)' }}>
           {current}/{required}
         </span>
       </div>
       <div
         style={{
           height: 4,
-          background: 'rgba(255,255,255,0.07)',
-          borderRadius: 2,
+          background: 'rgba(255,255,255,.07)',
+          borderRadius: 3,
         }}
       >
         <div
           style={{
             height: '100%',
             width: `${pct}%`,
-            background: done ? color : `${color}80`,
-            borderRadius: 2,
-            transition: 'width 0.5s ease',
+            background: done ? color : `${color}70`,
+            borderRadius: 3,
+            transition: 'width .5s ease',
           }}
         />
       </div>
+      {done && (
+        <div
+          style={{
+            fontSize: '.62rem',
+            color,
+            marginTop: '.25rem',
+            fontFamily: "'Orbitron',monospace",
+          }}
+        >
+          ✓ ELIGIBLE
+        </div>
+      )}
+    </div>
+  )
+}
+
+function Empty({ text }) {
+  return (
+    <div
+      style={{
+        textAlign: 'center',
+        padding: '2rem',
+        color: 'rgba(180,210,230,.32)',
+        fontFamily: "'Rajdhani',sans-serif",
+        fontSize: '.92rem',
+      }}
+    >
+      {text}
     </div>
   )
 }

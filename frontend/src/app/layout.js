@@ -1,11 +1,10 @@
 import '../styles/globals.css'
-import Navbar from '@/components/Navbar'
-import ToastProvider from '@/components/Toast'
+import Navbar from '../components/Navbar'
+import ToastProvider from '../components/Toast'
 
 export const metadata = {
-  title: 'Predict For Good | Win Rewards, Support Charity',
-  description:
-    'Stake on cricket matches. Winners earn ETH. 65% goes to charity. Powered by WireFluid.',
+  title: 'Predict For Good | PSL Prediction dApp',
+  description: 'Stake on PSL matches. Winners earn ETH. 65% goes to charity.',
 }
 
 export default function RootLayout({ children }) {
@@ -16,11 +15,10 @@ export default function RootLayout({ children }) {
         <link
           rel="preconnect"
           href="https://fonts.gstatic.com"
-          crossOrigin="anonymous"
+          crossOrigin="true"
         />
       </head>
-
-      <body className="min-h-screen bg-[var(--dark-bg)]">
+      <body style={{ minHeight: '100vh', background: 'var(--dark-bg)' }}>
         <Navbar />
         <main>{children}</main>
         <ToastProvider />

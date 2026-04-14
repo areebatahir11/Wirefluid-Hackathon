@@ -1,53 +1,55 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { ethers } from 'ethers'
 import {
   getCoreContract,
   ensureCorrectNetwork,
   formatETH,
   OUTCOME,
+  getTeamInfo,
 } from '../lib/ethers'
 import { toast } from './Toast'
 
-// ── Countdown hook ──────────────────────────────────────
-function useCountdown(lockTime) {
-  const [timeLeft, setTimeLeft] = useState(0)
+// ── Countdown timer hook ──────────────────────────────────
+function useTimer(lockTimeSec) {
+  const [left, setLeft] = useState(0)
 
   useEffect(() => {
-    const lockMs = Number(lockTime) * 1000
-    const update = () => setTimeLeft(Math.max(0, lockMs - Date.now()))
-    update()
-    const id = setInterval(update, 1000)
+    const lockMs = lockTimeSec * 1000
+    const tick = () => setLeft(Math.max(0, lockMs - Date.now()))
+    tick()
+    const id = setInterval(tick, 1000)
     return () => clearInterval(id)
-  }, [lockTime])
+  }, [lockTimeSec])
 
-  const secs = Math.floor(timeLeft / 1000)
-  const h = Math.floor(secs / 3600)
-  const m = Math.floor((secs % 3600) / 60)
-  const s = secs % 60
-  const fmt = (n) => String(n).padStart(2, '0')
+  const totalSecs = Math.floor(left / 1000)
+  const h = Math.floor(totalSecs / 3600)
+  const m = Math.floor((totalSecs % 3600) / 60)
+  const s = totalSecs % 60
+  const pad = (n) => String(n).padStart(2, '0')
 
   return {
-    display: `${fmt(h)}:${fmt(m)}:${fmt(s)}`,
-    expired: timeLeft === 0,
-    urgent: secs < 300, // < 5 min
+    display: `${pad(h)}:${pad(m)}:${pad(s)}`,
+    expired: left === 0,
+    urgent: totalSecs > 0 && totalSecs < 300,
   }
 }
 
 export default function MatchCard({ match, account }) {
-  const [choice, setChoice] = useState(null) // 1=TEAM_A, 2=TEAM_B, 3=DRAW
+  const [choice, setChoice] = useState(null) // OUTCOME.TEAM_A / TEAM_B / DRAW
   const [stake, setStake] = useState('')
   const [loading, setLoading] = useState(false)
   const [predicted, setPredicted] = useState(false)
 
-  const { display, expired, urgent } = useCountdown(match.lockTime)
+  const teamA = getTeamInfo(match.teamA)
+  const teamB = getTeamInfo(match.teamB)
 
-  const lockTime = Number(match.lockTime)
-  const startTime = Number(match.startTime)
+  const { display, expired, urgent } = useTimer(match.lockTime)
+
   const now = Math.floor(Date.now() / 1000)
-  const isLocked = now >= lockTime
-  const isStarted = now >= startTime
-  const totalPool = formatETH(match.totalStaked)
+  const isLocked = now >= match.lockTime
+  const isStarted = now >= match.startTime
+  const pool = formatETH(match.totalStaked)
 
   const handlePredict = async () => {
     if (!account) {
@@ -55,11 +57,11 @@ export default function MatchCard({ match, account }) {
       return
     }
     if (!choice) {
-      toast.error('Select a team first')
+      toast.error('Choose a team first')
       return
     }
     if (!stake || parseFloat(stake) <= 0) {
-      toast.error('Enter a valid stake amount')
+      toast.error('Enter stake amount')
       return
     }
 
@@ -70,244 +72,339 @@ export default function MatchCard({ match, account }) {
       const tx = await core.placePrediction(match.matchId, choice, {
         value: ethers.parseEther(stake),
       })
-      toast.info('Transaction submitted...')
+      toast.info('Transaction submitted — waiting for confirmation...')
       await tx.wait()
       setPredicted(true)
-      toast.success('Prediction placed successfully! 🎉')
+      toast.success(
+        `Prediction placed on ${choice === OUTCOME.TEAM_A ? match.teamA : choice === OUTCOME.TEAM_B ? match.teamB : 'Draw'}! 🎉`,
+      )
     } catch (e) {
-      const msg = e?.reason || e?.message || 'Transaction failed'
-      toast.error(msg.length > 80 ? msg.slice(0, 80) + '...' : msg)
+      const raw = e?.reason || e?.message || 'Transaction failed'
+      toast.error(raw.length > 90 ? raw.slice(0, 90) + '...' : raw)
     } finally {
       setLoading(false)
     }
   }
 
-  const choiceLabel = { 1: match.teamA, 2: match.teamB, 3: 'DRAW' }
+  // Timer color
+  const timerColor = isLocked
+    ? '#ff3355'
+    : urgent
+      ? '#ff8800'
+      : 'var(--neon-blue)'
 
   return (
     <div
       className="glass card-hover"
-      style={{ padding: '1.5rem', position: 'relative', overflow: 'hidden' }}
+      style={{ padding: '1.4rem', position: 'relative', overflow: 'hidden' }}
     >
-      {/* Top glow line */}
+      {/* Top glow stripe — team A color → team B color */}
       <div
         style={{
           position: 'absolute',
           top: 0,
           left: 0,
           right: 0,
-          height: '2px',
+          height: 2,
           background: isLocked
-            ? 'linear-gradient(90deg, transparent, #ff4466, transparent)'
-            : 'linear-gradient(90deg, transparent, var(--neon-blue), var(--neon-green), transparent)',
+            ? 'linear-gradient(90deg,transparent,#ff3355,transparent)'
+            : `linear-gradient(90deg, transparent, ${teamA.color}, ${teamB.color}, transparent)`,
         }}
       />
 
-      {/* Header */}
+      {/* ── Header: teams ── */}
       <div
         style={{
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'flex-start',
-          marginBottom: '1.25rem',
+          marginBottom: '1.1rem',
         }}
       >
-        <div>
+        {/* Match ID + teams */}
+        <div style={{ flex: 1 }}>
           <div
             style={{
-              fontSize: '0.7rem',
-              color: 'rgba(168,196,210,0.5)',
-              fontFamily: "'Orbitron', monospace",
-              letterSpacing: '0.1em',
-              marginBottom: '0.35rem',
+              fontSize: '.6rem',
+              fontFamily: "'Orbitron',monospace",
+              letterSpacing: '.12em',
+              color: 'rgba(180,210,230,.4)',
+              marginBottom: '.4rem',
             }}
           >
-            MATCH #{String(match.matchId)}
+            MATCH #{match.matchId} · PSL
           </div>
+
+          {/* Team row */}
           <div
             style={{
-              fontSize: '1.25rem',
-              fontWeight: 700,
-              color: '#fff',
-              lineHeight: 1.2,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '.6rem',
+              flexWrap: 'wrap',
             }}
           >
-            <span style={{ color: 'var(--neon-green)' }}>{match.teamA}</span>
-            <span
+            {/* Team A */}
+            <div
               style={{
-                color: 'rgba(168,196,210,0.5)',
-                margin: '0 0.5rem',
-                fontSize: '1rem',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
               }}
             >
-              vs
-            </span>
-            <span style={{ color: '#ff6688' }}>{match.teamB}</span>
+              <span
+                style={{
+                  fontSize: '1.5rem',
+                  filter: `drop-shadow(0 0 8px ${teamA.color})`,
+                }}
+              >
+                {teamA.emoji}
+              </span>
+              <span
+                style={{
+                  fontSize: '.72rem',
+                  fontWeight: 700,
+                  color: teamA.color,
+                  fontFamily: "'Rajdhani',sans-serif",
+                  marginTop: 2,
+                  textAlign: 'center',
+                  maxWidth: 80,
+                }}
+              >
+                {match.teamA}
+              </span>
+            </div>
+
+            <div
+              style={{
+                padding: '0 .35rem',
+                fontSize: '.7rem',
+                fontFamily: "'Orbitron',monospace",
+                color: 'rgba(180,210,230,.35)',
+                fontWeight: 700,
+              }}
+            >
+              VS
+            </div>
+
+            {/* Team B */}
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+              }}
+            >
+              <span
+                style={{
+                  fontSize: '1.5rem',
+                  filter: `drop-shadow(0 0 8px ${teamB.color})`,
+                }}
+              >
+                {teamB.emoji}
+              </span>
+              <span
+                style={{
+                  fontSize: '.72rem',
+                  fontWeight: 700,
+                  color: teamB.color,
+                  fontFamily: "'Rajdhani',sans-serif",
+                  marginTop: 2,
+                  textAlign: 'center',
+                  maxWidth: 80,
+                }}
+              >
+                {match.teamB}
+              </span>
+            </div>
           </div>
         </div>
 
-        {isLocked ? (
-          <span className="locked-badge">🔒 Locked</span>
-        ) : (
-          <span className="active-badge">
-            <span className="pulse-dot" style={{ width: 6, height: 6 }} />
-            Live
-          </span>
-        )}
+        {/* Status badge */}
+        <div>
+          {isLocked ? (
+            <span className="badge-locked">🔒 Locked</span>
+          ) : (
+            <span className="badge-active">
+              <span className="pulse-dot" />
+              Live
+            </span>
+          )}
+        </div>
       </div>
 
-      {/* Timer + Pool */}
+      {/* ── Stats row: timer + pool ── */}
       <div
         style={{
           display: 'grid',
           gridTemplateColumns: '1fr 1fr',
-          gap: '0.75rem',
-          marginBottom: '1.25rem',
+          gap: '.6rem',
+          marginBottom: '1.1rem',
         }}
       >
         <div
           style={{
-            background: 'rgba(0,0,0,0.3)',
+            background: 'rgba(0,0,0,.35)',
             borderRadius: 8,
-            padding: '0.75rem',
-            border: `1px solid ${urgent && !isLocked ? 'rgba(255,100,0,0.4)' : 'rgba(255,255,255,0.06)'}`,
-            textAlign: 'center',
+            padding: '.65rem .75rem',
+            border: `1px solid ${urgent && !isLocked ? 'rgba(255,136,0,.35)' : 'rgba(255,255,255,.05)'}`,
           }}
         >
           <div
             style={{
-              fontSize: '0.6rem',
-              color: 'rgba(168,196,210,0.5)',
-              fontFamily: "'Orbitron', monospace",
-              letterSpacing: '0.08em',
-              marginBottom: '0.3rem',
+              fontSize: '.58rem',
+              fontFamily: "'Orbitron',monospace",
+              letterSpacing: '.1em',
+              color: 'rgba(180,210,230,.4)',
+              marginBottom: '.28rem',
             }}
           >
-            {isLocked ? 'LOCKED' : 'LOCKS IN'}
+            {isLocked ? 'BETTING CLOSED' : 'CLOSES IN'}
           </div>
           <div
-            className="timer-ring"
-            style={{
-              fontSize: '1.3rem',
-              color: isLocked
-                ? '#ff4466'
-                : urgent
-                  ? '#ff8800'
-                  : 'var(--neon-blue)',
-              letterSpacing: '0.05em',
-            }}
+            className="timer-text"
+            style={{ fontSize: '1.2rem', color: timerColor }}
           >
-            {isLocked ? '00:00:00' : display}
+            {isLocked ? '──:──:──' : display}
           </div>
         </div>
 
         <div
           style={{
-            background: 'rgba(0,0,0,0.3)',
+            background: 'rgba(0,0,0,.35)',
             borderRadius: 8,
-            padding: '0.75rem',
-            border: '1px solid rgba(255,255,255,0.06)',
-            textAlign: 'center',
+            padding: '.65rem .75rem',
+            border: '1px solid rgba(255,255,255,.05)',
           }}
         >
           <div
             style={{
-              fontSize: '0.6rem',
-              color: 'rgba(168,196,210,0.5)',
-              fontFamily: "'Orbitron', monospace",
-              letterSpacing: '0.08em',
-              marginBottom: '0.3rem',
+              fontSize: '.58rem',
+              fontFamily: "'Orbitron',monospace",
+              letterSpacing: '.1em',
+              color: 'rgba(180,210,230,.4)',
+              marginBottom: '.28rem',
             }}
           >
             TOTAL POOL
           </div>
           <div
             style={{
-              fontSize: '1.1rem',
+              fontSize: '1.05rem',
               fontWeight: 700,
               color: 'var(--neon-gold)',
-              fontFamily: "'Orbitron', monospace",
+              fontFamily: "'Orbitron',monospace",
             }}
           >
-            {totalPool} <span style={{ fontSize: '0.7rem' }}>ETH</span>
+            {pool} <span style={{ fontSize: '.65rem' }}>ETH</span>
           </div>
         </div>
       </div>
 
-      {/* Prediction section */}
+      {/* ── Prediction UI ── */}
       {predicted ? (
+        /* Success state */
         <div
           style={{
             textAlign: 'center',
-            padding: '1rem',
-            background: 'rgba(0,255,136,0.05)',
-            borderRadius: 8,
-            border: '1px solid rgba(0,255,136,0.2)',
-            color: 'var(--neon-green)',
-            fontWeight: 600,
+            padding: '.9rem',
+            background: 'rgba(0,255,136,.04)',
+            borderRadius: 9,
+            border: '1px solid rgba(0,255,136,.18)',
           }}
         >
-          ✅ Predicted: <strong>{choiceLabel[choice]}</strong>
           <div
             style={{
-              fontSize: '0.8rem',
-              color: 'rgba(168,196,210,0.5)',
-              marginTop: '0.25rem',
+              color: 'var(--neon-green)',
+              fontWeight: 700,
+              marginBottom: '.2rem',
             }}
           >
-            Stake: {stake} ETH
+            ✅ Prediction placed!
+          </div>
+          <div style={{ fontSize: '.78rem', color: 'rgba(180,210,230,.45)' }}>
+            {stake} ETH on{' '}
+            {choice === OUTCOME.TEAM_A
+              ? match.teamA
+              : choice === OUTCOME.TEAM_B
+                ? match.teamB
+                : 'Draw'}
+          </div>
+          <div
+            style={{
+              fontSize: '.7rem',
+              color: 'rgba(0,255,136,.5)',
+              marginTop: '.4rem',
+              fontFamily: "'Orbitron',monospace",
+              letterSpacing: '.08em',
+            }}
+          >
+            65% → CHARITY · 35% → WINNERS
           </div>
         </div>
       ) : isLocked ? (
+        /* Locked state */
         <div
           style={{
             textAlign: 'center',
-            padding: '1rem',
-            background: 'rgba(255,68,102,0.05)',
-            borderRadius: 8,
-            border: '1px solid rgba(255,68,102,0.2)',
-            color: '#ff6688',
-            fontWeight: 600,
-            fontSize: '0.9rem',
-            fontFamily: "'Orbitron', monospace",
+            padding: '.9rem',
+            background: 'rgba(255,51,85,.03)',
+            borderRadius: 9,
+            border: '1px solid rgba(255,51,85,.15)',
+            fontFamily: "'Orbitron',monospace",
+            color: '#ff5577',
+            fontSize: '.75rem',
+            letterSpacing: '.08em',
           }}
         >
           🔒 PREDICTIONS CLOSED
         </div>
       ) : (
+        /* Active prediction form */
         <div
-          style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}
+          style={{ display: 'flex', flexDirection: 'column', gap: '.65rem' }}
         >
           {/* Choice buttons */}
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <div style={{ display: 'flex', gap: '.45rem' }}>
             <button
-              className={`choice-btn ${choice === OUTCOME.TEAM_A ? 'selected-a' : ''}`}
+              className={`choice-btn ${choice === OUTCOME.TEAM_A ? 'sel-a' : ''}`}
               onClick={() => setChoice(OUTCOME.TEAM_A)}
             >
-              {match.teamA}
+              <div style={{ fontSize: '1rem', marginBottom: 2 }}>
+                {teamA.emoji}
+              </div>
+              <div>{match.teamA.split(' ')[0]}</div>
+              <div style={{ fontSize: '.55rem', opacity: 0.7 }}>TEAM A</div>
             </button>
+
             <button
-              className={`choice-btn ${choice === OUTCOME.DRAW ? 'selected-draw' : ''}`}
+              className={`choice-btn ${choice === OUTCOME.DRAW ? 'sel-draw' : ''}`}
               onClick={() => setChoice(OUTCOME.DRAW)}
-              style={{ flex: '0 0 auto', padding: '0.75rem 0.6rem' }}
+              style={{ flex: '0 0 52px' }}
             >
-              Draw
+              <div style={{ fontSize: '.9rem', marginBottom: 2 }}>🤝</div>
+              <div>Draw</div>
             </button>
+
             <button
-              className={`choice-btn ${choice === OUTCOME.TEAM_B ? 'selected-b' : ''}`}
+              className={`choice-btn ${choice === OUTCOME.TEAM_B ? 'sel-b' : ''}`}
               onClick={() => setChoice(OUTCOME.TEAM_B)}
             >
-              {match.teamB}
+              <div style={{ fontSize: '1rem', marginBottom: 2 }}>
+                {teamB.emoji}
+              </div>
+              <div>{match.teamB.split(' ')[0]}</div>
+              <div style={{ fontSize: '.55rem', opacity: 0.7 }}>TEAM B</div>
             </button>
           </div>
 
-          {/* Stake input */}
-          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          {/* Stake input row */}
+          <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center' }}>
             <div style={{ position: 'relative', flex: 1 }}>
               <input
                 type="number"
                 className="input-dark"
-                placeholder="Stake (ETH)"
+                placeholder="0.01"
                 value={stake}
                 onChange={(e) => setStake(e.target.value)}
                 min="0"
@@ -316,22 +413,27 @@ export default function MatchCard({ match, account }) {
               <span
                 style={{
                   position: 'absolute',
-                  right: '0.75rem',
+                  right: '.75rem',
                   top: '50%',
                   transform: 'translateY(-50%)',
-                  fontSize: '0.75rem',
+                  fontSize: '.7rem',
                   color: 'var(--neon-gold)',
-                  fontFamily: "'Orbitron', monospace",
+                  fontFamily: "'Orbitron',monospace",
+                  pointerEvents: 'none',
                 }}
               >
                 ETH
               </span>
             </div>
             <button
-              className="btn-primary btn-glow-border"
+              className="btn-primary"
               onClick={handlePredict}
               disabled={loading || !choice || !stake}
-              style={{ whiteSpace: 'nowrap', flexShrink: 0 }}
+              style={{
+                flexShrink: 0,
+                fontSize: '.68rem',
+                padding: '.58rem 1.1rem',
+              }}
             >
               {loading ? <span className="spinner" /> : 'Place Bet'}
             </button>
@@ -342,8 +444,8 @@ export default function MatchCard({ match, account }) {
             style={{
               display: 'flex',
               gap: '1rem',
-              fontSize: '0.75rem',
-              color: 'rgba(168,196,210,0.45)',
+              fontSize: '.7rem',
+              color: 'rgba(180,210,230,.35)',
             }}
           >
             <span>🏆 35% winners</span>

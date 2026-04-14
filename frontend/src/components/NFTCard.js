@@ -1,149 +1,174 @@
 'use client'
-import { TIER_NAME } from '../lib/ethers'
+import { ipfsToHttp } from '../lib/ethers'
 
-const TIER_CONFIG = {
+const TIER_CFG = {
   1: {
     name: 'Bronze',
     color: '#cd7f32',
-    glow: 'rgba(205,127,50,0.4)',
+    glow: 'rgba(205,127,50,.5)',
     emoji: '🥉',
-    class: 'tier-bronze',
-    min: 1,
+    cls: 'tier-bronze',
+    next: 'Silver',
   },
   2: {
     name: 'Silver',
     color: '#c0c0c0',
-    glow: 'rgba(192,192,192,0.4)',
+    glow: 'rgba(192,192,192,.5)',
     emoji: '🥈',
-    class: 'tier-silver',
-    min: 5,
+    cls: 'tier-silver',
+    next: 'Gold',
   },
   3: {
     name: 'Gold',
     color: '#ffd700',
-    glow: 'rgba(255,215,0,0.4)',
+    glow: 'rgba(255,215,0,.5)',
     emoji: '🏆',
-    class: 'tier-gold',
-    min: 10,
+    cls: 'tier-gold',
+    next: null,
   },
 }
 
 export default function NFTCard({ tokenId, metadata, onUpgrade, upgrading }) {
   const tier = Number(metadata.tier)
-  const config = TIER_CONFIG[tier] || TIER_CONFIG[1]
-  const canUpgrade = tier < 3
-
-  const mintDate = new Date(
-    Number(metadata.mintedAt) * 1000,
-  ).toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  })
+  const cfg = TIER_CFG[tier] || TIER_CFG[1]
+  const imgUrl = ipfsToHttp(metadata.tokenURI || '') // if you fetch tokenURI separately
+  const date = new Date(Number(metadata.mintedAt) * 1000).toLocaleDateString(
+    'en-US',
+    {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    },
+  )
 
   return (
     <div
-      className={`glass card-hover ${config.class}`}
+      className={`glass card-hover ${cfg.cls}`}
       style={{
-        padding: '1.25rem',
+        padding: '1.2rem',
         position: 'relative',
         overflow: 'hidden',
-        border: `1px solid ${config.color}40`,
+        border: `1px solid ${cfg.color}38`,
       }}
     >
-      {/* Glow top line */}
+      {/* Top stripe */}
       <div
         style={{
           position: 'absolute',
           top: 0,
           left: 0,
           right: 0,
-          height: '2px',
-          background: `linear-gradient(90deg, transparent, ${config.color}, transparent)`,
+          height: 2,
+          background: `linear-gradient(90deg, transparent, ${cfg.color}, transparent)`,
         }}
       />
 
-      {/* NFT Visual */}
+      {/* NFT image or emoji placeholder */}
       <div
         style={{
           width: '100%',
           aspectRatio: '1',
-          background: `radial-gradient(circle at center, ${config.color}25, transparent 70%)`,
-          border: `1px solid ${config.color}30`,
-          borderRadius: 12,
+          borderRadius: 10,
+          border: `1px solid ${cfg.color}28`,
+          overflow: 'hidden',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          fontSize: '3rem',
-          marginBottom: '1rem',
-          boxShadow: `0 0 30px ${config.glow}`,
+          marginBottom: '.9rem',
+          background: `radial-gradient(circle at center, ${cfg.color}18, transparent 70%)`,
+          boxShadow: `0 0 28px ${cfg.glow}`,
         }}
       >
-        {config.emoji}
+        {imgUrl ? (
+          <img
+            src={imgUrl}
+            alt={cfg.name}
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              borderRadius: 9,
+            }}
+            onError={(e) => {
+              e.target.style.display = 'none'
+            }}
+          />
+        ) : (
+          <span
+            style={{
+              fontSize: '3rem',
+              filter: `drop-shadow(0 0 12px ${cfg.color})`,
+            }}
+          >
+            {cfg.emoji}
+          </span>
+        )}
       </div>
 
       {/* Info */}
       <div style={{ textAlign: 'center' }}>
         <div
-          className="font-orbitron"
           style={{
-            fontSize: '0.7rem',
-            letterSpacing: '0.1em',
-            color: 'rgba(168,196,210,0.5)',
-            marginBottom: '0.25rem',
+            fontSize: '.6rem',
+            fontFamily: "'Orbitron',monospace",
+            letterSpacing: '.12em',
+            color: 'rgba(180,210,230,.4)',
+            marginBottom: '.2rem',
           }}
         >
-          TOKEN #{String(tokenId)}
+          TOKEN #{tokenId}
         </div>
         <div
           style={{
-            fontSize: '1.1rem',
+            fontSize: '1rem',
             fontWeight: 700,
-            color: config.color,
-            marginBottom: '0.5rem',
+            color: cfg.color,
+            fontFamily: "'Rajdhani',sans-serif",
+            marginBottom: '.35rem',
           }}
         >
-          {config.name} Predictor
+          {cfg.name} Predictor
         </div>
         <div
           style={{
-            fontSize: '0.8rem',
-            color: 'rgba(168,196,210,0.5)',
-            marginBottom: '0.75rem',
+            fontSize: '.75rem',
+            color: 'rgba(180,210,230,.45)',
+            marginBottom: '.75rem',
           }}
         >
-          {Number(metadata.predictionsAtMint)} correct predictions
+          {Number(metadata.predictionsAtMint)} predictions
           <br />
-          <span style={{ fontSize: '0.7rem' }}>Minted {mintDate}</span>
+          <span style={{ fontSize: '.65rem' }}>Minted {date}</span>
         </div>
 
-        {canUpgrade ? (
+        {/* Upgrade or max badge */}
+        {cfg.next ? (
           <button
-            className="btn-primary btn-glow-border"
+            className="btn-primary"
             onClick={() => onUpgrade(tokenId)}
             disabled={upgrading}
-            style={{ width: '100%', fontSize: '0.7rem' }}
+            style={{ width: '100%', fontSize: '.65rem', padding: '.5rem' }}
           >
             {upgrading ? (
               <span className="spinner" />
             ) : (
-              `Upgrade → ${TIER_CONFIG[tier + 1]?.name}`
+              `⬆ Upgrade → ${cfg.next}`
             )}
           </button>
         ) : (
           <div
             style={{
-              padding: '0.5rem',
-              background: 'rgba(255,215,0,0.08)',
-              border: '1px solid rgba(255,215,0,0.25)',
+              padding: '.45rem',
+              background: 'rgba(255,215,0,.07)',
+              border: '1px solid rgba(255,215,0,.25)',
               borderRadius: 6,
-              fontSize: '0.75rem',
+              fontSize: '.65rem',
               color: 'var(--neon-gold)',
-              fontFamily: "'Orbitron', monospace",
-              letterSpacing: '0.05em',
+              fontFamily: "'Orbitron',monospace",
+              letterSpacing: '.06em',
             }}
           >
-            MAX TIER ✨
+            ✨ MAX TIER
           </div>
         )}
       </div>

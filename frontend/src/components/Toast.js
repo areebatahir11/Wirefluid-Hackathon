@@ -1,49 +1,44 @@
 'use client'
 import { useEffect, useState } from 'react'
 
-// Global toast state
-let toastFn = null
-
+let _push = null
 export const toast = {
-  success: (msg) => toastFn?.('success', msg),
-  error: (msg) => toastFn?.('error', msg),
-  info: (msg) => toastFn?.('info', msg),
+  success: (msg) => _push?.('success', msg),
+  error: (msg) => _push?.('error', msg),
+  info: (msg) => _push?.('info', msg),
 }
 
 export default function ToastProvider() {
-  const [toasts, setToasts] = useState([])
+  const [list, setList] = useState([])
 
   useEffect(() => {
-    toastFn = (type, message) => {
-      const id = Date.now()
-      setToasts((prev) => [...prev, { id, type, message }])
-      setTimeout(() => {
-        setToasts((prev) => prev.filter((t) => t.id !== id))
-      }, 4000)
+    _push = (type, message) => {
+      const id = Date.now() + Math.random()
+      setList((p) => [...p, { id, type, message }])
+      setTimeout(() => setList((p) => p.filter((t) => t.id !== id)), 4200)
     }
     return () => {
-      toastFn = null
+      _push = null
     }
   }, [])
+
+  const icons = { success: '✅', error: '❌', info: 'ℹ️' }
 
   return (
     <div
       style={{
         position: 'fixed',
-        bottom: '2rem',
-        right: '2rem',
+        bottom: '1.75rem',
+        right: '1.75rem',
         zIndex: 9999,
         display: 'flex',
         flexDirection: 'column',
-        gap: '0.75rem',
+        gap: '.65rem',
       }}
     >
-      {toasts.map((t) => (
+      {list.map((t) => (
         <div key={t.id} className={`toast toast-${t.type}`}>
-          <span style={{ marginRight: '0.5rem' }}>
-            {t.type === 'success' ? '✅' : t.type === 'error' ? '❌' : 'ℹ️'}
-          </span>
-          {t.message}
+          {icons[t.type]} {t.message}
         </div>
       ))}
     </div>

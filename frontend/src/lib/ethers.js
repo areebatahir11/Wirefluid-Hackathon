@@ -1,58 +1,9 @@
-// import { ethers } from 'ethers'
-// import CoreABI from '../abi/Core.json'
-// import NFTABI from '../abi/RewardNFT.json'
-// import DonationABI from '../abi/Donation.json'
-
-// export const CORE_ADDRESS = process.env.NEXT_PUBLIC_CORE_ADDRESS
-// export const NFT_ADDRESS = process.env.NEXT_PUBLIC_NFT_ADDRESS
-// export const DONATION_ADDRESS = process.env.NEXT_PUBLIC_DONATION_ADDRESS
-
-// export const getProvider = () => {
-//   if (typeof window === 'undefined') return null
-
-//   if (!window.ethereum) {
-//     throw new Error('MetaMask not installed')
-//   }
-
-//   return new ethers.BrowserProvider(window.ethereum)
-// }
-
-// export const getSigner = async () => {
-//   const provider = getProvider()
-//   if (!provider) throw new Error('Provider not available')
-
-//   return await provider.getSigner()
-// }
-
-// export const getCoreContract = async () => {
-//   if (!CORE_ADDRESS) throw new Error('Core address missing')
-
-//   const signer = await getSigner()
-//   return new ethers.Contract(CORE_ADDRESS, CoreABI, signer)
-// }
-
-// export const getNFTContract = async () => {
-//   if (!NFT_ADDRESS) throw new Error('NFT address missing')
-
-//   const signer = await getSigner()
-//   return new ethers.Contract(NFT_ADDRESS, NFTABI, signer)
-// }
-
-// export const getDonationContract = async () => {
-//   if (!DONATION_ADDRESS) throw new Error('Donation address missing')
-
-//   const signer = await getSigner()
-//   return new ethers.Contract(DONATION_ADDRESS, DonationABI, signer)
-// }
 import { ethers } from 'ethers'
 
-// ── ABI imports ──────────────────────────────────────────
-// These files are in src/abi/ — copied from backend/out/
 import CoreABIFull from '../abi/Core.json'
 import RewardNFTABIFull from '../abi/RewardNFT.json'
 import DonationABIFull from '../abi/Donation.json'
 
-// Foundry outputs full JSON — we only need the abi array
 const CoreABI = CoreABIFull.abi ?? CoreABIFull
 const RewardNFTABI = RewardNFTABIFull.abi ?? RewardNFTABIFull
 const DonationABI = DonationABIFull.abi ?? DonationABIFull
@@ -65,86 +16,135 @@ export const CHAIN_ID = parseInt(process.env.NEXT_PUBLIC_CHAIN_ID || '92533')
 export const RPC_URL =
   process.env.NEXT_PUBLIC_RPC_URL || 'https://evm.wirefluid.com'
 
-// ── Provider (MetaMask) ──────────────────────────────────
+// ── NFT IPFS URIs ────────────────────────────────────────
+// After uploading images to Pinata, set these in .env.local:
+// NEXT_PUBLIC_BRONZE_URI=ipfs://QmYourBronzeCID
+// NEXT_PUBLIC_SILVER_URI=ipfs://QmYourSilverCID
+// NEXT_PUBLIC_GOLD_URI=ipfs://QmYourGoldCID
+// Then call: nft.setUris(bronzeURI, silverURI, goldURI) from deployer wallet
+export const NFT_URIS = {
+  BRONZE: process.env.NEXT_PUBLIC_BRONZE_URI || null,
+  SILVER: process.env.NEXT_PUBLIC_SILVER_URI || null,
+  GOLD: process.env.NEXT_PUBLIC_GOLD_URI || null,
+}
+
+// Convert ipfs:// to https:// for <img> tags
+export const ipfsToHttp = (uri) => {
+  if (!uri || uri === '') return null
+  if (uri.startsWith('ipfs://')) {
+    return `https://gateway.pinata.cloud/ipfs/${uri.slice(7)}`
+  }
+  return uri
+}
+
+// ── PSL Teams — colors fetched from blockchain names ─────
+// Your CreateMatches script pushes exact these names on-chain
+export const PSL_TEAMS = {
+  'Lahore Qalandars': {
+    color: '#00a651',
+    glow: 'rgba(0,166,81,0.5)',
+    emoji: '🦁',
+    short: 'LQ',
+  },
+  'Karachi Kings': {
+    color: '#0077cc',
+    glow: 'rgba(0,119,204,0.5)',
+    emoji: '👑',
+    short: 'KK',
+  },
+  'Islamabad United': {
+    color: '#e31837',
+    glow: 'rgba(227,24,55,0.5)',
+    emoji: '⚡',
+    short: 'IU',
+  },
+  'Multan Sultans': {
+    color: '#7b2d8b',
+    glow: 'rgba(123,45,139,0.5)',
+    emoji: '🔮',
+    short: 'MS',
+  },
+  'Peshawar Zalmi': {
+    color: '#f7941d',
+    glow: 'rgba(247,148,29,0.5)',
+    emoji: '🦅',
+    short: 'PZ',
+  },
+  'Quetta Gladiators': {
+    color: '#1c1c6e',
+    glow: 'rgba(60,60,180,0.5)',
+    emoji: '⚔️',
+    short: 'QG',
+  },
+}
+
+export const getTeamInfo = (name) =>
+  PSL_TEAMS[name] || {
+    color: '#00d4ff',
+    glow: 'rgba(0,212,255,0.4)',
+    emoji: '🏏',
+    short: '??',
+  }
+
+// ── Providers ────────────────────────────────────────────
 export const getProvider = () => {
   if (typeof window === 'undefined') return null
   if (!window.ethereum) throw new Error('MetaMask not installed')
   return new ethers.BrowserProvider(window.ethereum)
 }
 
-// ── Read-only provider (no wallet needed) ────────────────
-export const getReadProvider = () => {
-  return new ethers.JsonRpcProvider(RPC_URL)
-}
+export const getReadProvider = () => new ethers.JsonRpcProvider(RPC_URL)
 
-// ── Signer ───────────────────────────────────────────────
 export const getSigner = async () => {
   const provider = getProvider()
   if (!provider) throw new Error('No provider')
   return await provider.getSigner()
 }
 
-// ── Switch to WireFluid network ──────────────────────────
+// ── Auto-add WireFluid network ───────────────────────────
 export const ensureCorrectNetwork = async () => {
-  if (!window.ethereum) return
-  const chainIdHex = await window.ethereum.request({ method: 'eth_chainId' })
-  const current = parseInt(chainIdHex, 16)
-  if (current !== CHAIN_ID) {
-    try {
+  if (typeof window === 'undefined' || !window.ethereum) return
+  const hex = await window.ethereum.request({ method: 'eth_chainId' })
+  const current = parseInt(hex, 16)
+  if (current === CHAIN_ID) return
+
+  try {
+    await window.ethereum.request({
+      method: 'wallet_switchEthereumChain',
+      params: [{ chainId: `0x${CHAIN_ID.toString(16)}` }],
+    })
+  } catch (err) {
+    if (err.code === 4902) {
       await window.ethereum.request({
-        method: 'wallet_switchEthereumChain',
-        params: [{ chainId: `0x${CHAIN_ID.toString(16)}` }],
+        method: 'wallet_addEthereumChain',
+        params: [
+          {
+            chainId: `0x${CHAIN_ID.toString(16)}`,
+            chainName: 'WireFluid Testnet',
+            nativeCurrency: { name: 'WIRE', symbol: 'WIRE', decimals: 18 },
+            rpcUrls: [RPC_URL],
+            blockExplorerUrls: ['https://wirefluidscan.com/'],
+          },
+        ],
       })
-    } catch (err) {
-      if (err.code === 4902) {
-        await window.ethereum.request({
-          method: 'wallet_addEthereumChain',
-          params: [
-            {
-              chainId: `0x${CHAIN_ID.toString(16)}`,
-              chainName: 'WireFluid Testnet',
-              nativeCurrency: { name: 'WIRE', symbol: 'WIRE', decimals: 18 },
-              rpcUrls: [RPC_URL],
-              blockExplorerUrls: ['https://wirefluidscan.com/'],
-            },
-          ],
-        })
-      }
-    }
+    } else throw err
   }
 }
 
-// ── Core Contract (read-only, no wallet) ─────────────────
-export const getCoreRead = () => {
-  const provider = getReadProvider()
-  return new ethers.Contract(CORE_ADDRESS, CoreABI, provider)
-}
+// ── Contract getters ─────────────────────────────────────
+export const getCoreRead = () =>
+  new ethers.Contract(CORE_ADDRESS, CoreABI, getReadProvider())
+export const getNFTRead = () =>
+  new ethers.Contract(NFT_ADDRESS, RewardNFTABI, getReadProvider())
+export const getDonationRead = () =>
+  new ethers.Contract(DONATION_ADDRESS, DonationABI, getReadProvider())
 
-// ── Core Contract (with signer) ──────────────────────────
-export const getCoreContract = async () => {
-  const signer = await getSigner()
-  return new ethers.Contract(CORE_ADDRESS, CoreABI, signer)
-}
+export const getCoreContract = async () =>
+  new ethers.Contract(CORE_ADDRESS, CoreABI, await getSigner())
+export const getNFTContract = async () =>
+  new ethers.Contract(NFT_ADDRESS, RewardNFTABI, await getSigner())
 
-// ── NFT Contract (read-only) ─────────────────────────────
-export const getNFTRead = () => {
-  const provider = getReadProvider()
-  return new ethers.Contract(NFT_ADDRESS, RewardNFTABI, provider)
-}
-
-// ── NFT Contract (with signer) ───────────────────────────
-export const getNFTContract = async () => {
-  const signer = await getSigner()
-  return new ethers.Contract(NFT_ADDRESS, RewardNFTABI, signer)
-}
-
-// ── Donation Contract (read-only) ────────────────────────
-export const getDonationRead = () => {
-  const provider = getReadProvider()
-  return new ethers.Contract(DONATION_ADDRESS, DonationABI, provider)
-}
-
-// ── Helpers ───────────────────────────────────────────────
+// ── Formatting helpers ───────────────────────────────────
 export const formatETH = (wei) => {
   try {
     return parseFloat(ethers.formatEther(wei)).toFixed(4)
@@ -156,12 +156,60 @@ export const formatETH = (wei) => {
 export const shortenAddr = (addr) =>
   addr ? `${addr.slice(0, 6)}...${addr.slice(-4)}` : ''
 
-// PredictionOutcome enum  0=NONE 1=TEAM_A 2=TEAM_B 3=DRAW
+// ── Enums — match Solidity exactly ───────────────────────
 export const OUTCOME = { NONE: 0, TEAM_A: 1, TEAM_B: 2, DRAW: 3 }
-
-// MatchStatus enum  0=ACTIVE 1=RESOLVED 2=CANCELLED
 export const STATUS = { ACTIVE: 0, RESOLVED: 1, CANCELLED: 2 }
-
-// NFTTier enum  0=NONE 1=BRONZE 2=SILVER 3=GOLD
 export const TIER = { NONE: 0, BRONZE: 1, SILVER: 2, GOLD: 3 }
 export const TIER_NAME = { 0: 'None', 1: 'Bronze', 2: 'Silver', 3: 'Gold' }
+export const TIER_REQ = { 1: 1, 2: 5, 3: 10 }
+
+// ── Parse raw on-chain Match struct → plain JS object ────
+export const parseMatch = (m) => ({
+  matchId: Number(m.matchId),
+  teamA: m.teamA,
+  teamB: m.teamB,
+  startTime: Number(m.startTime),
+  lockTime: Number(m.lockTime),
+  status: Number(m.status),
+  result: Number(m.result),
+  totalStaked: m.totalStaked,
+  winnerPool: m.winnerPool,
+  donationPool: m.donationPool,
+})
+
+// ── Load all active matches from blockchain ───────────────
+export const fetchActiveMatches = async () => {
+  const core = getCoreRead()
+  const activeIds = await core.getActiveMatches()
+  const results = await Promise.all(
+    activeIds.map(async (id) => {
+      const m = await core.getMatch(id)
+      return parseMatch(m)
+    }),
+  )
+  return results
+}
+
+// ── Load user prediction history across all matches ───────
+export const fetchUserPredictions = async (account) => {
+  const core = getCoreRead()
+  const total = Number(await core.matchCounter())
+  const matched = []
+
+  for (let i = 1; i <= total; i++) {
+    try {
+      const pred = await core.getUserPrediction(i, account)
+      if (Number(pred.stakeAmount) === 0) continue
+      const match = await core.getMatch(i)
+      matched.push({
+        ...parseMatch(match),
+        prediction: {
+          choice: Number(pred.choice),
+          stakeAmount: pred.stakeAmount,
+          claimed: pred.claimed,
+        },
+      })
+    } catch {}
+  }
+  return matched
+}
