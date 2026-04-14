@@ -8,9 +8,9 @@ import {RewardNFT} from "../src/NFTTier.sol";
 
 contract DeployPredict4Good is Script {
     // ── Charity wallets (replace with real addresses on mainnet) ──
-    address constant C1 = 0x70997970C51812dc3A010C7d01b50e0d17dc79C8;
-    address constant C2 = 0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC;
-    address constant C3 = 0x90F79bf6EB2c4f870365E785982E1f101E93b906;
+    address constant C1 = 0x70997970C51812dc3A010C7d01b50e0d17dc79C8; //e.g; shokhat khanam
+    address constant C2 = 0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC; //e.g; Edhi Center
+    address constant C3 = 0x90F79bf6EB2c4f870365E785982E1f101E93b906; //e.g; Namal university
 
     function run() external {
         uint256 deployerKey = vm.envUint("PRIVATE_KEY");
