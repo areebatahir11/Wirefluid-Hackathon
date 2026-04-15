@@ -1,50 +1,35 @@
 'use client'
+// app/profile/page.js
 import { useState, useEffect } from 'react'
-import { ethers } from 'ethers'
 import {
-  getProvider,
   ensureCorrectNetwork,
   getCoreContract,
   getCoreRead,
   getNFTRead,
-  getNFTContract,
   getDonationRead,
   fetchUserPredictions,
   formatETH,
   shortenAddr,
   OUTCOME,
   STATUS,
-  TIER_REQ,
-  TIER_NAME,
-  ipfsToHttp,
 } from '../../lib/ethers'
 import NFTCard from '../../components/NFTCard'
 import { toast } from '../../components/Toast'
+import { useAccount } from '../../lib/AccountContext'
+import Confetti from '../../components/Confetti'
 
 export default function Profile() {
-  const [account, setAccount] = useState(null)
+  const { account } = useAccount()
   const [correct, setCorrect] = useState(0)
-  const [myMatches, setMyMatches] = useState([]) // matches user predicted
+  const [myMatches, setMyMatches] = useState([])
   const [nfts, setNfts] = useState([])
   const [charities, setCharities] = useState([])
   const [loading, setLoading] = useState(true)
-
-  // Per-action loading states keyed by matchId or tokenId
   const [busy, setBusy] = useState({})
+  const [showConfetti, setShowConfetti] = useState(false)
+
   const setBusyFor = (key, val) => setBusy((p) => ({ ...p, [key]: val }))
 
-  // ── Account ──────────────────────────────────────────────
-  useEffect(() => {
-    const init = async () => {
-      if (!window.ethereum) return
-      const accounts = await getProvider().send('eth_accounts', [])
-      if (accounts.length) setAccount(accounts[0])
-    }
-    init()
-    window.ethereum?.on('accountsChanged', (a) => setAccount(a[0] || null))
-  }, [])
-
-  // ── Load everything when account is known ────────────────
   useEffect(() => {
     if (!account) {
       setLoading(false)
@@ -65,13 +50,12 @@ export default function Profile() {
           core.correctPredictions(addr),
           nftRead.getUserNfts(addr),
           donation.getAllCharities(),
-          fetchUserPredictions(addr), // scans all matches the user predicted
+          fetchUserPredictions(addr),
         ])
 
       setCorrect(Number(correctCount))
       setMyMatches(predictions)
 
-      // NFT metadata — also fetch tokenURI for IPFS image
       const nftData = await Promise.all(
         tokenIds.map(async (id) => {
           const [meta, uri] = await Promise.all([
@@ -83,7 +67,6 @@ export default function Profile() {
       )
       setNfts(nftData)
 
-      // Charities
       const cData = await Promise.all(
         charityAddrs.map(async (a) => {
           const info = await donation.getCharity(a)
@@ -99,7 +82,6 @@ export default function Profile() {
     }
   }
 
-  // ── Claim reward ─────────────────────────────────────────
   const claimReward = async (matchId) => {
     try {
       setBusyFor(`reward_${matchId}`, true)
@@ -109,15 +91,7 @@ export default function Profile() {
       toast.info('Claiming reward...')
       await tx.wait()
       toast.success('Reward claimed! 💰')
-      setMyMatches((p) =>
-        p.map((m) =>
-          m.matchId === matchId
-            ? { ...m, prediction: { ...m.prediction, claimed: true } }
-            : m,
-        ),
-      )
-      setCorrect((p) => p) // correct count already counted at claimReward tx on-chain
-      await load(account) // refresh all
+      await load(account)
     } catch (e) {
       toast.error(e?.reason || e?.message || 'Claim failed')
     } finally {
@@ -125,7 +99,6 @@ export default function Profile() {
     }
   }
 
-  // ── Claim refund ─────────────────────────────────────────
   const claimRefund = async (matchId) => {
     try {
       setBusyFor(`refund_${matchId}`, true)
@@ -143,7 +116,6 @@ export default function Profile() {
     }
   }
 
-  // ── Mint NFT (after winning, calls mintPredictorNFT) ─────
   const mintNFT = async (matchId) => {
     try {
       setBusyFor(`mint_${matchId}`, true)
@@ -152,7 +124,9 @@ export default function Profile() {
       const tx = await core.mintPredictorNFT(matchId)
       toast.info('Minting NFT badge...')
       await tx.wait()
-      toast.success('NFT minted! Check your collection 🎖️')
+      setShowConfetti(true)
+      setTimeout(() => setShowConfetti(false), 6000)
+      toast.success('NFT minted! 🎖️')
       await load(account)
     } catch (e) {
       toast.error(e?.reason || e?.message || 'Mint failed')
@@ -161,7 +135,6 @@ export default function Profile() {
     }
   }
 
-  // ── Upgrade NFT ──────────────────────────────────────────
   const upgradeNFT = async (tokenId) => {
     try {
       setBusyFor(`upgrade_${tokenId}`, true)
@@ -170,6 +143,8 @@ export default function Profile() {
       const tx = await core.upgradeNFT(tokenId)
       toast.info('Upgrading NFT...')
       await tx.wait()
+      setShowConfetti(true)
+      setTimeout(() => setShowConfetti(false), 6000)
       toast.success('NFT upgraded! ⬆️')
       await load(account)
     } catch (e) {
@@ -179,7 +154,6 @@ export default function Profile() {
     }
   }
 
-  // ── Helpers ───────────────────────────────────────────────
   const choiceLabel = (m) => {
     if (m.prediction.choice === OUTCOME.TEAM_A) return m.teamA
     if (m.prediction.choice === OUTCOME.TEAM_B) return m.teamB
@@ -188,18 +162,19 @@ export default function Profile() {
 
   const isWinner = (m) =>
     m.status === STATUS.RESOLVED && m.prediction.choice === m.result
-
   const isCancelled = (m) => m.status === STATUS.CANCELLED
 
-  // ── Render ───────────────────────────────────────────────
   return (
     <div
       style={{
         minHeight: '100vh',
         position: 'relative',
+        paddingTop: 56,
         paddingBottom: '4rem',
       }}
     >
+      {showConfetti && <Confetti />}
+
       <div
         style={{
           position: 'fixed',
@@ -308,7 +283,7 @@ export default function Profile() {
           <div
             style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}
           >
-            {/* ── Profile card ── */}
+            {/* Profile card */}
             <div
               className="glass"
               style={{
@@ -335,7 +310,6 @@ export default function Profile() {
               >
                 🏏
               </div>
-
               <div style={{ flex: 1, minWidth: 200 }}>
                 <div
                   style={{
@@ -359,7 +333,6 @@ export default function Profile() {
                   {account}
                 </div>
               </div>
-
               <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
                 <MiniStat
                   value={correct}
@@ -379,7 +352,7 @@ export default function Profile() {
               </div>
             </div>
 
-            {/* ── NFT progress bar ── */}
+            {/* Rank progress */}
             {correct > 0 && (
               <div className="glass-sm" style={{ padding: '1.1rem 1.3rem' }}>
                 <div
@@ -406,14 +379,14 @@ export default function Profile() {
                   <ProgressBar
                     label="Silver"
                     emoji="🥈"
-                    required={5}
+                    required={2}
                     current={correct}
                     color="#c0c0c0"
                   />
                   <ProgressBar
                     label="Gold"
                     emoji="🏆"
-                    required={10}
+                    required={3}
                     current={correct}
                     color="#ffd700"
                   />
@@ -421,7 +394,7 @@ export default function Profile() {
               </div>
             )}
 
-            {/* ── My Predictions ── */}
+            {/* My Predictions */}
             <Section title="My Predictions" icon="🎯" count={myMatches.length}>
               {myMatches.length === 0 ? (
                 <Empty text="No predictions yet — go to the Arena and place your first bet!" />
@@ -452,7 +425,6 @@ export default function Profile() {
                           flexWrap: 'wrap',
                         }}
                       >
-                        {/* Match info */}
                         <div style={{ flex: 1, minWidth: 180 }}>
                           <div
                             style={{
@@ -494,7 +466,6 @@ export default function Profile() {
                           </div>
                         </div>
 
-                        {/* Status badge */}
                         <div>
                           {pending && (
                             <span className="badge-active">
@@ -513,7 +484,6 @@ export default function Profile() {
                           )}
                         </div>
 
-                        {/* Action buttons */}
                         <div
                           style={{
                             display: 'flex',
@@ -521,7 +491,6 @@ export default function Profile() {
                             flexWrap: 'wrap',
                           }}
                         >
-                          {/* Claim reward */}
                           {resolved && won && !claimed && (
                             <button
                               className="btn-green"
@@ -539,9 +508,7 @@ export default function Profile() {
                               )}
                             </button>
                           )}
-
-                          {/* Mint NFT — only after claiming reward (correct count incremented) */}
-                          {resolved && won && !busy[`reward_${m.matchId}`] && (
+                          {resolved && won && claimed && (
                             <button
                               className="btn-primary"
                               onClick={() => mintNFT(m.matchId)}
@@ -558,8 +525,6 @@ export default function Profile() {
                               )}
                             </button>
                           )}
-
-                          {/* Refund */}
                           {cancelled && !claimed && (
                             <button
                               className="btn-primary"
@@ -579,9 +544,7 @@ export default function Profile() {
                               )}
                             </button>
                           )}
-
-                          {/* Claimed */}
-                          {claimed && (
+                          {claimed && !resolved && (
                             <span
                               style={{
                                 fontSize: '.72rem',
@@ -600,12 +563,7 @@ export default function Profile() {
               )}
             </Section>
 
-            {/* ── NFT Collection ── */}
-            {/*
-              NFT images are fetched from IPFS via tokenURI() → ipfsToHttp()
-              Set URIs first: call nft.setUris(bronzeIPFS, silverIPFS, goldIPFS)
-              from deployer wallet after uploading images to Pinata.
-            */}
+            {/* NFT Collection */}
             <Section title="NFT Collection" icon="🎖️" count={nfts.length}>
               {nfts.length === 0 ? (
                 <Empty text="Win matches, then mint your Predictor badge here. Bronze → Silver → Gold." />
@@ -613,8 +571,8 @@ export default function Profile() {
                 <div
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fill,minmax(170px,1fr))',
-                    gap: '.9rem',
+                    gridTemplateColumns: 'repeat(auto-fill,minmax(200px,1fr))',
+                    gap: '1rem',
                   }}
                 >
                   {nfts.map(({ tokenId, metadata }) => (
@@ -628,28 +586,9 @@ export default function Profile() {
                   ))}
                 </div>
               )}
-
-              {/* IPFS setup note */}
-              {nfts.length > 0 && !nfts[0].metadata.tokenURI && (
-                <div
-                  style={{
-                    marginTop: '1rem',
-                    padding: '.75rem 1rem',
-                    background: 'rgba(255,215,0,.05)',
-                    border: '1px solid rgba(255,215,0,.18)',
-                    borderRadius: 8,
-                    fontSize: '.78rem',
-                    color: 'rgba(255,215,0,.65)',
-                    fontFamily: "'Rajdhani',sans-serif",
-                  }}
-                >
-                  💡 NFT images will appear once you upload to Pinata and call{' '}
-                  <code>nft.setUris()</code> with your CIDs.
-                </div>
-              )}
             </Section>
 
-            {/* ── Charity impact ── */}
+            {/* Charity impact */}
             <Section title="Charity Impact" icon="💚" count={charities.length}>
               <div
                 style={{
@@ -715,8 +654,6 @@ export default function Profile() {
     </div>
   )
 }
-
-/* ── Sub-components ────────────────────────────────────── */
 
 function Section({ title, icon, count, children }) {
   return (

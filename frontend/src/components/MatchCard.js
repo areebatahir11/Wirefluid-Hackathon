@@ -1,4 +1,5 @@
 'use client'
+// components/MatchCard.js
 import { useState, useEffect, useCallback } from 'react'
 import { ethers } from 'ethers'
 import {
@@ -6,14 +7,18 @@ import {
   ensureCorrectNetwork,
   formatETH,
   OUTCOME,
+  STATUS,
   getTeamInfo,
+  resolveMatchAdmin,
+  getOwner,
+  getCoreRead,
 } from '../lib/ethers'
 import { toast } from './Toast'
+import Confetti from './Confetti'
 
-// ── Countdown timer hook ──────────────────────────────────
+// ── Countdown hook ────────────────────────────────────────
 function useTimer(lockTimeSec) {
   const [left, setLeft] = useState(0)
-
   useEffect(() => {
     const lockMs = lockTimeSec * 1000
     const tick = () => setLeft(Math.max(0, lockMs - Date.now()))
@@ -21,13 +26,11 @@ function useTimer(lockTimeSec) {
     const id = setInterval(tick, 1000)
     return () => clearInterval(id)
   }, [lockTimeSec])
-
   const totalSecs = Math.floor(left / 1000)
   const h = Math.floor(totalSecs / 3600)
   const m = Math.floor((totalSecs % 3600) / 60)
   const s = totalSecs % 60
   const pad = (n) => String(n).padStart(2, '0')
-
   return {
     display: `${pad(h)}:${pad(m)}:${pad(s)}`,
     expired: left === 0,
@@ -35,36 +38,94 @@ function useTimer(lockTimeSec) {
   }
 }
 
-export default function MatchCard({ match, account }) {
-  const [choice, setChoice] = useState(null) // OUTCOME.TEAM_A / TEAM_B / DRAW
+// ── NFT tiers ─────────────────────────────────────────────
+const TIER = [
+  {
+    min: 1,
+    label: 'Bronze',
+    emoji: '🥉',
+    color: '#cd7f32',
+    img: '/bronze.png',
+  },
+  {
+    min: 2,
+    label: 'Silver',
+    emoji: '🥈',
+    color: '#c0c0c0',
+    img: '/silver.png',
+  },
+  { min: 3, label: 'Gold', emoji: '🏆', color: '#ffd700', img: '/gold.png' },
+]
+
+function getTier(correct) {
+  let t = null
+  for (const tier of TIER) {
+    if (correct >= tier.min) t = tier
+  }
+  return t
+}
+
+export default function MatchCard({ match, account, isAdmin, onResolved }) {
+  const [choice, setChoice] = useState(null) // OUTCOME enum
   const [stake, setStake] = useState('')
   const [loading, setLoading] = useState(false)
   const [predicted, setPredicted] = useState(false)
+  const [resolving, setResolving] = useState(false)
+
+  // Post-resolve state
+  const [resolved, setResolved] = useState(match.status === STATUS.RESOLVED)
+  const [winnerOutcome, setWinnerOutcome] = useState(match.result ?? null) // OUTCOME
+  const [userWon, setUserWon] = useState(false)
+  const [showConfetti, setShowConfetti] = useState(false)
+
+  // NFT minting
+  const [minting, setMinting] = useState(false)
+  const [minted, setMinted] = useState(false)
+  const [correctCount, setCorrectCount] = useState(0)
+  const [claiming, setClaiming] = useState(false)
+  const [claimed, setClaimed] = useState(match.prediction?.claimed ?? false)
 
   const teamA = getTeamInfo(match.teamA)
   const teamB = getTeamInfo(match.teamB)
 
-  const { display, expired, urgent } = useTimer(match.lockTime)
+  const { display, expired: lockExpired, urgent } = useTimer(match.lockTime)
 
   const now = Math.floor(Date.now() / 1000)
-  const isLocked = now >= match.lockTime
+  const isLocked = lockExpired || now >= match.lockTime
   const isStarted = now >= match.startTime
   const pool = formatETH(match.totalStaked)
 
-  const handlePredict = async () => {
-    if (!account) {
-      toast.error('Connect wallet first')
-      return
+  // Load existing prediction + correct count
+  useEffect(() => {
+    if (!account || !match.prediction) return
+    if (
+      match.prediction.stakeAmount &&
+      BigInt(match.prediction.stakeAmount) > 0n
+    ) {
+      setPredicted(true)
+      setChoice(match.prediction.choice)
+      setClaimed(match.prediction.claimed)
     }
-    if (!choice) {
-      toast.error('Choose a team first')
-      return
+    if (match.status === STATUS.RESOLVED) {
+      setResolved(true)
+      setWinnerOutcome(match.result)
+      const won = match.prediction?.choice === match.result
+      setUserWon(won)
     }
-    if (!stake || parseFloat(stake) <= 0) {
-      toast.error('Enter stake amount')
-      return
-    }
+  }, [account, match])
 
+  // Load correct predictions count
+  useEffect(() => {
+    if (!account) return
+    getCoreRead()
+      .correctPredictions(account)
+      .then((n) => setCorrectCount(Number(n)))
+      .catch(() => {})
+  }, [account, minted])
+
+  // ── Place prediction ────────────────────────────────────
+  const handlePredict = async () => {
+    if (!choice || !stake) return
     try {
       setLoading(true)
       await ensureCorrectNetwork()
@@ -72,157 +133,148 @@ export default function MatchCard({ match, account }) {
       const tx = await core.placePrediction(match.matchId, choice, {
         value: ethers.parseEther(stake),
       })
-      toast.info('Transaction submitted — waiting for confirmation...')
+      toast.info('Waiting confirmation...')
       await tx.wait()
       setPredicted(true)
-      toast.success(
-        `Prediction placed on ${choice === OUTCOME.TEAM_A ? match.teamA : choice === OUTCOME.TEAM_B ? match.teamB : 'Draw'}! 🎉`,
-      )
+      toast.success('Prediction placed! 🎉')
     } catch (e) {
-      const raw = e?.reason || e?.message || 'Transaction failed'
-      toast.error(raw.length > 90 ? raw.slice(0, 90) + '...' : raw)
+      toast.error(e?.reason || e?.message || 'Failed')
     } finally {
       setLoading(false)
     }
   }
 
-  // Timer color
+  // ── Admin: resolve match randomly ──────────────────────
+  const handleResolve = async () => {
+    try {
+      setResolving(true)
+      // 1 = TEAM_A, 2 = TEAM_B  (no draw for cricket)
+      const random = Math.random() < 0.5 ? OUTCOME.TEAM_A : OUTCOME.TEAM_B
+      await resolveMatchAdmin(match.matchId, random)
+
+      setWinnerOutcome(random)
+      setResolved(true)
+      if (predicted && choice === random) {
+        setUserWon(true)
+        setShowConfetti(true)
+        setTimeout(() => setShowConfetti(false), 5000)
+      }
+      toast.success('Match resolved! 🏆')
+      onResolved?.()
+    } catch (e) {
+      toast.error(e?.reason || e?.message || 'Resolve failed')
+    } finally {
+      setResolving(false)
+    }
+  }
+
+  // ── Claim reward ────────────────────────────────────────
+  const handleClaim = async () => {
+    try {
+      setClaiming(true)
+      await ensureCorrectNetwork()
+      const core = await getCoreContract()
+      const tx = await core.claimReward(match.matchId)
+      toast.info('Claiming reward...')
+      await tx.wait()
+      setClaimed(true)
+      toast.success('Reward claimed! 💰')
+      // Refresh correct count
+      const n = await getCoreRead().correctPredictions(account)
+      setCorrectCount(Number(n))
+    } catch (e) {
+      toast.error(e?.reason || e?.message || 'Claim failed')
+    } finally {
+      setClaiming(false)
+    }
+  }
+
+  // ── Mint NFT ────────────────────────────────────────────
+  const handleMintNFT = async () => {
+    try {
+      setMinting(true)
+      await ensureCorrectNetwork()
+      const core = await getCoreContract()
+      const tx = await core.mintPredictorNFT(match.matchId)
+      toast.info('Minting your badge...')
+      await tx.wait()
+      setMinted(true)
+      setShowConfetti(true)
+      setTimeout(() => setShowConfetti(false), 6000)
+      toast.success('NFT minted! 🎖️')
+      const n = await getCoreRead().correctPredictions(account)
+      setCorrectCount(Number(n))
+    } catch (e) {
+      toast.error(e?.reason || e?.message || 'Mint failed')
+    } finally {
+      setMinting(false)
+    }
+  }
+
   const timerColor = isLocked
     ? '#ff3355'
     : urgent
       ? '#ff8800'
       : 'var(--neon-blue)'
 
-  return (
-    <div
-      className="glass card-hover"
-      style={{ padding: '1.4rem', position: 'relative', overflow: 'hidden' }}
-    >
-      {/* Top glow stripe — team A color → team B color */}
-      <div
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          height: 2,
-          background: isLocked
-            ? 'linear-gradient(90deg,transparent,#ff3355,transparent)'
-            : `linear-gradient(90deg, transparent, ${teamA.color}, ${teamB.color}, transparent)`,
-        }}
-      />
+  const winnerName =
+    winnerOutcome === OUTCOME.TEAM_A
+      ? match.teamA
+      : winnerOutcome === OUTCOME.TEAM_B
+        ? match.teamB
+        : 'Draw'
 
-      {/* ── Header: teams ── */}
+  const tier = getTier(correctCount)
+
+  return (
+    <>
+      {showConfetti && <Confetti />}
+
       <div
+        className="glass card-hover"
         style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'flex-start',
-          marginBottom: '1.1rem',
+          padding: '1.75rem',
+          position: 'relative',
+          overflow: 'hidden',
+          borderRadius: 16,
         }}
       >
-        {/* Match ID + teams */}
-        <div style={{ flex: 1 }}>
+        {/* Top glow stripe */}
+        <div
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 2,
+            background: isLocked
+              ? 'linear-gradient(90deg,transparent,#ff3355,transparent)'
+              : `linear-gradient(90deg, transparent, ${teamA.color}, ${teamB.color}, transparent)`,
+          }}
+        />
+
+        {/* Match ID + status badge */}
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginBottom: '1.25rem',
+          }}
+        >
           <div
             style={{
-              fontSize: '.6rem',
+              fontSize: '.58rem',
               fontFamily: "'Orbitron',monospace",
-              letterSpacing: '.12em',
-              color: 'rgba(180,210,230,.4)',
-              marginBottom: '.4rem',
+              letterSpacing: '.14em',
+              color: 'rgba(180,210,230,.38)',
             }}
           >
             MATCH #{match.matchId} · PSL
           </div>
-
-          {/* Team row */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '.6rem',
-              flexWrap: 'wrap',
-            }}
-          >
-            {/* Team A */}
-            <div
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-              }}
-            >
-              <span
-                style={{
-                  fontSize: '1.5rem',
-                  filter: `drop-shadow(0 0 8px ${teamA.color})`,
-                }}
-              >
-                {teamA.emoji}
-              </span>
-              <span
-                style={{
-                  fontSize: '.72rem',
-                  fontWeight: 700,
-                  color: teamA.color,
-                  fontFamily: "'Rajdhani',sans-serif",
-                  marginTop: 2,
-                  textAlign: 'center',
-                  maxWidth: 80,
-                }}
-              >
-                {match.teamA}
-              </span>
-            </div>
-
-            <div
-              style={{
-                padding: '0 .35rem',
-                fontSize: '.7rem',
-                fontFamily: "'Orbitron',monospace",
-                color: 'rgba(180,210,230,.35)',
-                fontWeight: 700,
-              }}
-            >
-              VS
-            </div>
-
-            {/* Team B */}
-            <div
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-              }}
-            >
-              <span
-                style={{
-                  fontSize: '1.5rem',
-                  filter: `drop-shadow(0 0 8px ${teamB.color})`,
-                }}
-              >
-                {teamB.emoji}
-              </span>
-              <span
-                style={{
-                  fontSize: '.72rem',
-                  fontWeight: 700,
-                  color: teamB.color,
-                  fontFamily: "'Rajdhani',sans-serif",
-                  marginTop: 2,
-                  textAlign: 'center',
-                  maxWidth: 80,
-                }}
-              >
-                {match.teamB}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Status badge */}
-        <div>
-          {isLocked ? (
+          {resolved ? (
+            <span className="badge-resolved">✓ Resolved</span>
+          ) : isLocked ? (
             <span className="badge-locked">🔒 Locked</span>
           ) : (
             <span className="badge-active">
@@ -231,228 +283,543 @@ export default function MatchCard({ match, account }) {
             </span>
           )}
         </div>
-      </div>
 
-      {/* ── Stats row: timer + pool ── */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: '1fr 1fr',
-          gap: '.6rem',
-          marginBottom: '1.1rem',
-        }}
-      >
+        {/* Teams */}
         <div
           style={{
-            background: 'rgba(0,0,0,.35)',
-            borderRadius: 8,
-            padding: '.65rem .75rem',
-            border: `1px solid ${urgent && !isLocked ? 'rgba(255,136,0,.35)' : 'rgba(255,255,255,.05)'}`,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: '1.5rem',
+            gap: '1rem',
           }}
         >
-          <div
-            style={{
-              fontSize: '.58rem',
-              fontFamily: "'Orbitron',monospace",
-              letterSpacing: '.1em',
-              color: 'rgba(180,210,230,.4)',
-              marginBottom: '.28rem',
-            }}
-          >
-            {isLocked ? 'BETTING CLOSED' : 'CLOSES IN'}
-          </div>
-          <div
-            className="timer-text"
-            style={{ fontSize: '1.2rem', color: timerColor }}
-          >
-            {isLocked ? '──:──:──' : display}
-          </div>
-        </div>
-
-        <div
-          style={{
-            background: 'rgba(0,0,0,.35)',
-            borderRadius: 8,
-            padding: '.65rem .75rem',
-            border: '1px solid rgba(255,255,255,.05)',
-          }}
-        >
-          <div
-            style={{
-              fontSize: '.58rem',
-              fontFamily: "'Orbitron',monospace",
-              letterSpacing: '.1em',
-              color: 'rgba(180,210,230,.4)',
-              marginBottom: '.28rem',
-            }}
-          >
-            TOTAL POOL
-          </div>
-          <div
-            style={{
-              fontSize: '1.05rem',
-              fontWeight: 700,
-              color: 'var(--neon-gold)',
-              fontFamily: "'Orbitron',monospace",
-            }}
-          >
-            {pool} <span style={{ fontSize: '.65rem' }}>ETH</span>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Prediction UI ── */}
-      {predicted ? (
-        /* Success state */
-        <div
-          style={{
-            textAlign: 'center',
-            padding: '.9rem',
-            background: 'rgba(0,255,136,.04)',
-            borderRadius: 9,
-            border: '1px solid rgba(0,255,136,.18)',
-          }}
-        >
-          <div
-            style={{
-              color: 'var(--neon-green)',
-              fontWeight: 700,
-              marginBottom: '.2rem',
-            }}
-          >
-            ✅ Prediction placed!
-          </div>
-          <div style={{ fontSize: '.78rem', color: 'rgba(180,210,230,.45)' }}>
-            {stake} ETH on{' '}
-            {choice === OUTCOME.TEAM_A
-              ? match.teamA
-              : choice === OUTCOME.TEAM_B
-                ? match.teamB
-                : 'Draw'}
-          </div>
-          <div
-            style={{
-              fontSize: '.7rem',
-              color: 'rgba(0,255,136,.5)',
-              marginTop: '.4rem',
-              fontFamily: "'Orbitron',monospace",
-              letterSpacing: '.08em',
-            }}
-          >
-            65% → CHARITY · 35% → WINNERS
-          </div>
-        </div>
-      ) : isLocked ? (
-        /* Locked state */
-        <div
-          style={{
-            textAlign: 'center',
-            padding: '.9rem',
-            background: 'rgba(255,51,85,.03)',
-            borderRadius: 9,
-            border: '1px solid rgba(255,51,85,.15)',
-            fontFamily: "'Orbitron',monospace",
-            color: '#ff5577',
-            fontSize: '.75rem',
-            letterSpacing: '.08em',
-          }}
-        >
-          🔒 PREDICTIONS CLOSED
-        </div>
-      ) : (
-        /* Active prediction form */
-        <div
-          style={{ display: 'flex', flexDirection: 'column', gap: '.65rem' }}
-        >
-          {/* Choice buttons */}
-          <div style={{ display: 'flex', gap: '.45rem' }}>
-            <button
-              className={`choice-btn ${choice === OUTCOME.TEAM_A ? 'sel-a' : ''}`}
-              onClick={() => setChoice(OUTCOME.TEAM_A)}
+          {/* Team A */}
+          <div style={{ flex: 1, textAlign: 'center' }}>
+            <div
+              style={{
+                fontSize: '2.5rem',
+                filter: `drop-shadow(0 0 12px ${teamA.color})`,
+                marginBottom: '.35rem',
+                lineHeight: 1,
+              }}
             >
-              <div style={{ fontSize: '1rem', marginBottom: 2 }}>
-                {teamA.emoji}
-              </div>
-              <div>{match.teamA.split(' ')[0]}</div>
-              <div style={{ fontSize: '.55rem', opacity: 0.7 }}>TEAM A</div>
-            </button>
-
-            <button
-              className={`choice-btn ${choice === OUTCOME.DRAW ? 'sel-draw' : ''}`}
-              onClick={() => setChoice(OUTCOME.DRAW)}
-              style={{ flex: '0 0 52px' }}
+              {teamA.emoji}
+            </div>
+            <div
+              style={{
+                fontFamily: "'Orbitron',monospace",
+                fontSize: '.72rem',
+                fontWeight: 700,
+                color: teamA.color,
+                letterSpacing: '.04em',
+              }}
             >
-              <div style={{ fontSize: '.9rem', marginBottom: 2 }}>🤝</div>
-              <div>Draw</div>
-            </button>
-
-            <button
-              className={`choice-btn ${choice === OUTCOME.TEAM_B ? 'sel-b' : ''}`}
-              onClick={() => setChoice(OUTCOME.TEAM_B)}
-            >
-              <div style={{ fontSize: '1rem', marginBottom: 2 }}>
-                {teamB.emoji}
-              </div>
-              <div>{match.teamB.split(' ')[0]}</div>
-              <div style={{ fontSize: '.55rem', opacity: 0.7 }}>TEAM B</div>
-            </button>
+              {match.teamA}
+            </div>
           </div>
 
-          {/* Stake input row */}
-          <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center' }}>
-            <div style={{ position: 'relative', flex: 1 }}>
+          {/* VS divider */}
+          <div style={{ textAlign: 'center' }}>
+            <div
+              style={{
+                fontFamily: "'Orbitron',monospace",
+                fontSize: '1.1rem',
+                fontWeight: 900,
+                color: 'rgba(180,210,230,.2)',
+                letterSpacing: '.1em',
+              }}
+            >
+              VS
+            </div>
+          </div>
+
+          {/* Team B */}
+          <div style={{ flex: 1, textAlign: 'center' }}>
+            <div
+              style={{
+                fontSize: '2.5rem',
+                filter: `drop-shadow(0 0 12px ${teamB.color})`,
+                marginBottom: '.35rem',
+                lineHeight: 1,
+              }}
+            >
+              {teamB.emoji}
+            </div>
+            <div
+              style={{
+                fontFamily: "'Orbitron',monospace",
+                fontSize: '.72rem',
+                fontWeight: 700,
+                color: teamB.color,
+                letterSpacing: '.04em',
+              }}
+            >
+              {match.teamB}
+            </div>
+          </div>
+        </div>
+
+        {/* Timer + Pool row */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: '.75rem',
+            marginBottom: '1.5rem',
+          }}
+        >
+          <div
+            className="glass-sm"
+            style={{ padding: '.75rem', textAlign: 'center' }}
+          >
+            <div
+              style={{
+                fontSize: '.55rem',
+                fontFamily: "'Orbitron',monospace",
+                letterSpacing: '.12em',
+                color: 'rgba(180,210,230,.35)',
+                marginBottom: '.3rem',
+              }}
+            >
+              CLOSES IN
+            </div>
+            <div
+              style={{
+                fontFamily: "'Orbitron',monospace",
+                fontSize: '1.15rem',
+                fontWeight: 700,
+                color: timerColor,
+                letterSpacing: '.08em',
+              }}
+            >
+              {isLocked ? '──:──:──' : display}
+            </div>
+          </div>
+
+          <div
+            className="glass-sm"
+            style={{ padding: '.75rem', textAlign: 'center' }}
+          >
+            <div
+              style={{
+                fontSize: '.55rem',
+                fontFamily: "'Orbitron',monospace",
+                letterSpacing: '.12em',
+                color: 'rgba(180,210,230,.35)',
+                marginBottom: '.3rem',
+              }}
+            >
+              TOTAL POOL
+            </div>
+            <div
+              style={{
+                fontFamily: "'Orbitron',monospace",
+                fontSize: '1.15rem',
+                fontWeight: 700,
+                color: 'var(--neon-gold)',
+              }}
+            >
+              {pool} <span style={{ fontSize: '.65rem' }}>ETH</span>
+            </div>
+          </div>
+        </div>
+
+        {/* ── RESOLVED: Winner Banner ── */}
+        {resolved && winnerOutcome !== null && (
+          <div
+            style={{
+              marginBottom: '1.25rem',
+              padding: '1.1rem',
+              background: userWon
+                ? 'rgba(0,255,136,.06)'
+                : 'rgba(255,50,80,.05)',
+              border: `1px solid ${userWon ? 'rgba(0,255,136,.25)' : 'rgba(255,50,80,.2)'}`,
+              borderRadius: 12,
+              textAlign: 'center',
+            }}
+          >
+            <div style={{ fontSize: '1.75rem', marginBottom: '.4rem' }}>
+              {userWon ? '🏆' : '💔'}
+            </div>
+            <div
+              className="font-orbitron"
+              style={{
+                fontSize: '.85rem',
+                color: userWon ? 'var(--neon-green)' : '#ff6688',
+                fontWeight: 700,
+                marginBottom: '.25rem',
+              }}
+            >
+              {userWon ? 'You Won!' : 'Match Resolved'}
+            </div>
+            <div
+              style={{
+                fontSize: '.78rem',
+                color: 'rgba(180,210,230,.55)',
+                fontFamily: "'Rajdhani',sans-serif",
+              }}
+            >
+              Winner:{' '}
+              <span style={{ color: '#fff', fontWeight: 700 }}>
+                {winnerName}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* ── PREDICTION UI (not locked, not yet predicted) ── */}
+        {!resolved && !isLocked && !predicted && account && (
+          <div>
+            {/* Team choice buttons */}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr auto 1fr',
+                gap: '.5rem',
+                marginBottom: '1rem',
+              }}
+            >
+              <button
+                onClick={() => setChoice(OUTCOME.TEAM_A)}
+                style={{
+                  padding: '.65rem',
+                  borderRadius: 10,
+                  border:
+                    choice === OUTCOME.TEAM_A
+                      ? `2px solid ${teamA.color}`
+                      : '2px solid rgba(255,255,255,.08)',
+                  background:
+                    choice === OUTCOME.TEAM_A
+                      ? `${teamA.color}18`
+                      : 'rgba(255,255,255,.03)',
+                  color:
+                    choice === OUTCOME.TEAM_A
+                      ? teamA.color
+                      : 'rgba(180,210,230,.5)',
+                  fontFamily: "'Rajdhani',sans-serif",
+                  fontWeight: 700,
+                  fontSize: '.82rem',
+                  cursor: 'pointer',
+                  transition: 'all .2s',
+                }}
+              >
+                {teamA.emoji} {match.teamA}
+              </button>
+
+              <button
+                onClick={() => setChoice(OUTCOME.DRAW)}
+                style={{
+                  padding: '.65rem .9rem',
+                  borderRadius: 10,
+                  border:
+                    choice === OUTCOME.DRAW
+                      ? '2px solid rgba(180,210,230,.5)'
+                      : '2px solid rgba(255,255,255,.08)',
+                  background:
+                    choice === OUTCOME.DRAW
+                      ? 'rgba(180,210,230,.08)'
+                      : 'rgba(255,255,255,.03)',
+                  color:
+                    choice === OUTCOME.DRAW ? '#fff' : 'rgba(180,210,230,.4)',
+                  fontFamily: "'Rajdhani',sans-serif",
+                  fontWeight: 700,
+                  fontSize: '.78rem',
+                  cursor: 'pointer',
+                  transition: 'all .2s',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                Draw
+              </button>
+
+              <button
+                onClick={() => setChoice(OUTCOME.TEAM_B)}
+                style={{
+                  padding: '.65rem',
+                  borderRadius: 10,
+                  border:
+                    choice === OUTCOME.TEAM_B
+                      ? `2px solid ${teamB.color}`
+                      : '2px solid rgba(255,255,255,.08)',
+                  background:
+                    choice === OUTCOME.TEAM_B
+                      ? `${teamB.color}18`
+                      : 'rgba(255,255,255,.03)',
+                  color:
+                    choice === OUTCOME.TEAM_B
+                      ? teamB.color
+                      : 'rgba(180,210,230,.5)',
+                  fontFamily: "'Rajdhani',sans-serif",
+                  fontWeight: 700,
+                  fontSize: '.82rem',
+                  cursor: 'pointer',
+                  transition: 'all .2s',
+                }}
+              >
+                {teamB.emoji} {match.teamB}
+              </button>
+            </div>
+
+            {/* Stake input */}
+            <div style={{ position: 'relative', marginBottom: '1rem' }}>
               <input
                 type="number"
-                className="input-dark"
-                placeholder="0.01"
                 value={stake}
                 onChange={(e) => setStake(e.target.value)}
-                min="0"
+                placeholder="0.01"
                 step="0.001"
+                min="0.001"
+                style={{
+                  width: '100%',
+                  padding: '.7rem 3.5rem .7rem 1rem',
+                  background: 'rgba(255,255,255,.04)',
+                  border: '1px solid rgba(0,212,255,.15)',
+                  borderRadius: 10,
+                  color: '#fff',
+                  fontFamily: "'Orbitron',monospace",
+                  fontSize: '.85rem',
+                  outline: 'none',
+                  boxSizing: 'border-box',
+                }}
               />
               <span
                 style={{
                   position: 'absolute',
-                  right: '.75rem',
+                  right: '1rem',
                   top: '50%',
                   transform: 'translateY(-50%)',
                   fontSize: '.7rem',
-                  color: 'var(--neon-gold)',
+                  color: 'rgba(180,210,230,.4)',
                   fontFamily: "'Orbitron',monospace",
-                  pointerEvents: 'none',
                 }}
               >
                 ETH
               </span>
             </div>
+
+            {/* Place bet button */}
             <button
               className="btn-primary"
               onClick={handlePredict}
               disabled={loading || !choice || !stake}
-              style={{
-                flexShrink: 0,
-                fontSize: '.68rem',
-                padding: '.58rem 1.1rem',
-              }}
+              style={{ width: '100%', fontSize: '.82rem', padding: '.8rem' }}
             >
-              {loading ? <span className="spinner" /> : 'Place Bet'}
+              {loading ? (
+                <span className="spinner" />
+              ) : choice ? (
+                `🎯 Bet on ${
+                  choice === OUTCOME.TEAM_A
+                    ? match.teamA
+                    : choice === OUTCOME.TEAM_B
+                      ? match.teamB
+                      : 'Draw'
+                }`
+              ) : (
+                'Select a team first'
+              )}
             </button>
           </div>
+        )}
 
-          {/* Split info */}
+        {/* ── PREDICTED but not yet resolved ── */}
+        {predicted && !resolved && (
+          <div
+            style={{
+              padding: '.9rem 1rem',
+              background: 'rgba(0,212,255,.05)',
+              border: '1px solid rgba(0,212,255,.15)',
+              borderRadius: 10,
+              textAlign: 'center',
+              fontFamily: "'Rajdhani',sans-serif",
+              color: 'var(--neon-blue)',
+              fontSize: '.88rem',
+              fontWeight: 600,
+            }}
+          >
+            ✓ Prediction placed — awaiting result
+          </div>
+        )}
+
+        {/* ── LOCKED, no prediction ── */}
+        {isLocked && !resolved && !predicted && (
+          <div
+            style={{
+              padding: '.9rem 1rem',
+              background: 'rgba(255,50,80,.04)',
+              border: '1px solid rgba(255,50,80,.15)',
+              borderRadius: 10,
+              textAlign: 'center',
+              fontFamily: "'Rajdhani',sans-serif",
+              color: '#ff6688',
+              fontSize: '.88rem',
+            }}
+          >
+            🔒 Predictions are closed — your stake has gone to charity
+          </div>
+        )}
+
+        {/* ── No wallet ── */}
+        {!account && !resolved && (
+          <div
+            style={{
+              padding: '.9rem',
+              textAlign: 'center',
+              color: 'rgba(180,210,230,.35)',
+              fontFamily: "'Rajdhani',sans-serif",
+              fontSize: '.85rem',
+            }}
+          >
+            Connect MetaMask to place a prediction
+          </div>
+        )}
+
+        {/* ── Winner actions: Claim + Mint ── */}
+        {resolved && predicted && userWon && (
           <div
             style={{
               display: 'flex',
-              gap: '1rem',
-              fontSize: '.7rem',
-              color: 'rgba(180,210,230,.35)',
+              flexDirection: 'column',
+              gap: '.65rem',
+              marginTop: '.25rem',
             }}
           >
-            <span>🏆 35% winners</span>
-            <span>💚 65% charity</span>
+            {!claimed && (
+              <button
+                className="btn-green"
+                onClick={handleClaim}
+                disabled={claiming}
+                style={{ width: '100%', fontSize: '.82rem', padding: '.8rem' }}
+              >
+                {claiming ? <span className="spinner" /> : '💰 Claim Reward'}
+              </button>
+            )}
+
+            {claimed && !minted && tier && (
+              <button
+                className="btn-primary"
+                onClick={handleMintNFT}
+                disabled={minting}
+                style={{
+                  width: '100%',
+                  fontSize: '.82rem',
+                  padding: '.8rem',
+                  background: `linear-gradient(135deg, ${tier.color}88, ${tier.color}44)`,
+                  border: `1px solid ${tier.color}60`,
+                }}
+              >
+                {minting ? (
+                  <span className="spinner" />
+                ) : (
+                  `${tier.emoji} Get Digital Reward — ${tier.label} NFT`
+                )}
+              </button>
+            )}
+
+            {minted && (
+              <NFTRewardDisplay tier={tier} correctCount={correctCount} />
+            )}
+
+            {claimed && (
+              <div
+                style={{
+                  textAlign: 'center',
+                  fontSize: '.72rem',
+                  color: 'rgba(180,210,230,.35)',
+                  fontFamily: "'Rajdhani',sans-serif",
+                }}
+              >
+                ✓ Reward claimed
+                {correctCount > 0 && (
+                  <span
+                    style={{ color: 'var(--neon-gold)', marginLeft: '.5rem' }}
+                  >
+                    · {correctCount} correct prediction
+                    {correctCount !== 1 ? 's' : ''}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
-        </div>
-      )}
+        )}
+
+        {/* ── ADMIN: Resolve button ── */}
+        {isAdmin && isStarted && !resolved && (
+          <button
+            onClick={handleResolve}
+            disabled={resolving}
+            style={{
+              marginTop: '1rem',
+              width: '100%',
+              padding: '.7rem',
+              borderRadius: 9,
+              border: '1px solid rgba(255,140,0,.3)',
+              background: 'rgba(255,140,0,.08)',
+              color: '#ffaa44',
+              fontFamily: "'Orbitron',monospace",
+              fontSize: '.72rem',
+              letterSpacing: '.06em',
+              cursor: 'pointer',
+              transition: 'all .2s',
+            }}
+          >
+            {resolving ? (
+              <span className="spinner" />
+            ) : (
+              '⚡ Resolve Match (Admin)'
+            )}
+          </button>
+        )}
+      </div>
+    </>
+  )
+}
+
+// ── NFT Reward Display ────────────────────────────────────
+function NFTRewardDisplay({ tier, correctCount }) {
+  if (!tier) return null
+  return (
+    <div
+      style={{
+        padding: '1.25rem',
+        background: `rgba(${tier.color === '#ffd700' ? '255,215,0' : tier.color === '#c0c0c0' ? '192,192,192' : '205,127,50'},.06)`,
+        border: `1px solid ${tier.color}40`,
+        borderRadius: 12,
+        textAlign: 'center',
+      }}
+    >
+      <img
+        src={tier.img}
+        alt={tier.label}
+        style={{
+          width: 100,
+          height: 100,
+          objectFit: 'contain',
+          borderRadius: 12,
+          marginBottom: '.75rem',
+          filter: `drop-shadow(0 0 16px ${tier.color}80)`,
+        }}
+      />
+      <div
+        style={{
+          fontFamily: "'Orbitron',monospace",
+          fontSize: '.8rem',
+          fontWeight: 700,
+          color: tier.color,
+          marginBottom: '.2rem',
+        }}
+      >
+        {tier.emoji} {tier.label} Predictor
+      </div>
+      <div
+        style={{
+          fontSize: '.7rem',
+          color: 'rgba(180,210,230,.45)',
+          fontFamily: "'Rajdhani',sans-serif",
+        }}
+      >
+        {correctCount} correct prediction{correctCount !== 1 ? 's' : ''}
+      </div>
     </div>
   )
 }

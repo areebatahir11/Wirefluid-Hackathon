@@ -10,17 +10,26 @@ contract ResolveMatches is Script {
 
         Core core = Core(payable(0x4c272a52FE77eBb39F5d3EFf162AdAeD277e07A7));
 
-        // ⚠️ Match results (example mapping)
-        // 0 = NONE, 1 = TEAM_A, 2 = TEAM_B, 3 = DRAW
+        uint256 totalMatches = 3; // or pass dynamically if you want
 
-        // Resolve Match 1 → TEAM_A wins
-        core.resolveMatch(1, Core.PredictionOutcome.TEAM_A);
+        for (uint256 matchId = 1; matchId <= totalMatches; matchId++) {
+            uint256 rand = uint256(
+                keccak256(
+                    abi.encodePacked(block.timestamp, matchId, msg.sender)
+                )
+            );
 
-        // Resolve Match 2 → TEAM_B wins
-        core.resolveMatch(2, Core.PredictionOutcome.TEAM_B);
+            uint256 outcome = rand % 3;
+            // 0 = TEAM_A, 1 = TEAM_B, 2 = DRAW
 
-        // Resolve Match 3 → DRAW
-        core.resolveMatch(3, Core.PredictionOutcome.DRAW);
+            if (outcome == 0) {
+                core.resolveMatch(matchId, Core.PredictionOutcome.TEAM_A);
+            } else if (outcome == 1) {
+                core.resolveMatch(matchId, Core.PredictionOutcome.TEAM_B);
+            } else {
+                core.resolveMatch(matchId, Core.PredictionOutcome.DRAW);
+            }
+        }
 
         vm.stopBroadcast();
     }

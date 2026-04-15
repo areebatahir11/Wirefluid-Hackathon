@@ -38,7 +38,7 @@ export const ipfsToHttp = (uri) => {
 }
 
 // ── PSL Teams — colors fetched from blockchain names ─────
-// Your CreateMatches script pushes exact these names on-chain
+// CreateMatches script pushes exact these names on-chain
 export const PSL_TEAMS = {
   'Lahore Qalandars': {
     color: '#00a651',
@@ -67,14 +67,20 @@ export const PSL_TEAMS = {
   'Peshawar Zalmi': {
     color: '#f7941d',
     glow: 'rgba(247,148,29,0.5)',
-    emoji: '🦅',
+    emoji: '⚔️',
     short: 'PZ',
   },
   'Quetta Gladiators': {
     color: '#1c1c6e',
     glow: 'rgba(60,60,180,0.5)',
-    emoji: '⚔️',
+    emoji: '🦅',
     short: 'QG',
+  },
+  'Rawalpindi Pindiz': {
+    color: '#ff4d4d',
+    glow: 'rgba(255,77,77,0.5)',
+    emoji: '🔥',
+    short: 'RP',
   },
 }
 
@@ -212,4 +218,26 @@ export const fetchUserPredictions = async (account) => {
     } catch {}
   }
   return matched
+}
+
+// ── ADMIN HELPERS ─────────────────────────
+
+// get owner
+export const getOwner = async () => {
+  const core = getCoreRead()
+  return await core.owner()
+}
+
+// create match (admin)
+export const createMatchAdmin = async (teamA, teamB, startTime, lockTime) => {
+  const core = await getCoreContract()
+  const tx = await core.createMatch(teamA, teamB, startTime, lockTime)
+  return await tx.wait()
+}
+
+// resolve match (admin)
+export const resolveMatchAdmin = async (matchId, result) => {
+  const core = await getCoreContract()
+  const tx = await core.resolveMatch(matchId, result)
+  return await tx.wait()
 }
