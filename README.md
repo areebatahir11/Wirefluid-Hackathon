@@ -6,8 +6,9 @@
 ---
 
 ## 🌍 Live Links
+  **Live at:** https://wirefluid-hackathon-qofy.vercel.app/
 
-* 🎥 **Demo Video:** https://drive.google.com/file/d/1cI4AleQoQph9J3Mqxyx2u8q2-QSvMNce/view?usp=drive_link
+  **Demo Video:** https://drive.google.com/file/d/1qMdDzUWvgYZJ6ObKwg6q3BCUQMGc27SD/view?usp=sharing
 
 ---
 
