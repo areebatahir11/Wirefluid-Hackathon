@@ -32,15 +32,17 @@ export const NFT_URIS = {
 export function ipfsToHttp(uri) {
   if (!uri) return ''
 
-  // already http
   if (uri.startsWith('http')) return uri
 
-  // ipfs:// → https://ipfs.io/ipfs/
-  if (uri.startsWith('ipfs://')) {
-    return uri.replace('ipfs://', 'https://ipfs.io/ipfs/')
-  }
+  let cid = uri
 
-  return uri
+  cid = cid.replace('ipfs://ipfs://', 'ipfs://')
+  cid = cid.replace('ipfs://', '')
+
+  // remove any leading slashes
+  cid = cid.replace(/^\/+/, '')
+
+  return `https://ipfs.io/ipfs/${cid}`
 }
 
 // ── PSL Teams — colors fetched from blockchain names ─────

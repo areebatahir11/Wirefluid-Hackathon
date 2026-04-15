@@ -29,26 +29,38 @@ const TIER_CFG = {
 }
 
 export default function NFTCard({ tokenId, metadata, onUpgrade, upgrading }) {
-  const tier = Number(metadata?.tier)
-
+  const tier = Number(
+    metadata?.attributes?.find((a) => a.trait_type === 'Tier')?.value ||
+      metadata?.tier ||
+      1,
+  )
   const cfg = TIER_CFG[tier] || TIER_CFG[1]
 
-  // ✅ ENV fallback (FIXED)
-  const fallback =
+  // ENV fallback URIs (these are the direct image URIs stored on Pinata)
+  const fallbackUri =
     tier === 1
       ? process.env.NEXT_PUBLIC_BRONZE_URI
       : tier === 2
         ? process.env.NEXT_PUBLIC_SILVER_URI
         : process.env.NEXT_PUBLIC_GOLD_URI
 
-  // ✅ Correct image field (IMPORTANT)
-  const rawImage = metadata?.image || fallback || ''
+  // metadata.image can be ipfs:// or https:// — ipfsToHttp handles both
 
-  const imgUrl = rawImage?.startsWith('http') ? rawImage : ipfsToHttp(rawImage)
+  const rawImage = metadata?.image || fallbackUri || ''
+  const imgUrl = ipfsToHttp(rawImage)
 
-  const date = new Date(
-    Number(metadata?.mintedAt || 0) * 1000,
-  ).toLocaleDateString('en-US', {
+  const mintedAt =
+    metadata?.attributes?.find((a) => a.trait_type === 'Minted At')?.value ||
+    metadata?.mintedAt ||
+    0
+
+  const predictionsAtMint =
+    metadata?.attributes?.find((a) => a.trait_type === 'Predictions At Mint')
+      ?.value ||
+    metadata?.predictionsAtMint ||
+    0
+
+  const date = new Date(Number(mintedAt) * 1000).toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
@@ -101,20 +113,28 @@ export default function NFTCard({ tokenId, metadata, onUpgrade, upgrading }) {
               borderRadius: 9,
             }}
             onError={(e) => {
-              console.log('Image failed:', imgUrl)
+              console.warn('NFT image failed to load:', imgUrl)
               e.currentTarget.style.display = 'none'
+              // Show emoji fallback sibling
+              if (e.currentTarget.nextSibling) {
+                e.currentTarget.nextSibling.style.display = 'flex'
+              }
             }}
           />
-        ) : (
-          <span
-            style={{
-              fontSize: '3rem',
-              filter: `drop-shadow(0 0 12px ${cfg.color})`,
-            }}
-          >
-            {cfg.emoji}
-          </span>
-        )}
+        ) : null}
+
+        {/* Emoji fallback — hidden when image loads, shown on error */}
+        <span
+          style={{
+            fontSize: '3rem',
+            filter: `drop-shadow(0 0 12px ${cfg.color})`,
+            display: imgUrl ? 'none' : 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          {cfg.emoji}
+        </span>
       </div>
 
       <div style={{ textAlign: 'center' }}>
@@ -126,8 +146,14 @@ export default function NFTCard({ tokenId, metadata, onUpgrade, upgrading }) {
           {cfg.name} Predictor
         </div>
 
-        <div style={{ fontSize: '.75rem', color: 'rgba(180,210,230,.45)' }}>
-          {Number(metadata?.predictionsAtMint || 0)} predictions
+        <div
+          style={{
+            fontSize: '.75rem',
+            color: 'rgba(180,210,230,.45)',
+            marginBottom: '.6rem',
+          }}
+        >
+          {Number(predictionsAtMint)} predictions
           <br />
           <span style={{ fontSize: '.65rem' }}>Minted {date}</span>
         </div>
@@ -146,7 +172,9 @@ export default function NFTCard({ tokenId, metadata, onUpgrade, upgrading }) {
             )}
           </button>
         ) : (
-          <div>✨ MAX TIER</div>
+          <div style={{ fontSize: '.75rem', color: cfg.color }}>
+            ✨ MAX TIER
+          </div>
         )}
       </div>
     </div>

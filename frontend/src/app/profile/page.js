@@ -17,6 +17,7 @@ import NFTCard from '../../components/NFTCard'
 import { toast } from '../../components/Toast'
 import { useAccount } from '../../lib/AccountContext'
 import Confetti from '../../components/Confetti'
+import { ipfsToHttp } from '../../lib/ethers'
 
 export default function Profile() {
   const { account } = useAccount()
@@ -56,20 +57,48 @@ export default function Profile() {
       setCorrect(Number(correctCount))
       setMyMatches(predictions)
 
+      // const nftData = await Promise.all(
+      //   tokenIds.map(async (id) => {
+      //     const uri = await nftRead.tokenURI(id).catch(() => '')
+
+      //     const meta = await fetch(ipfsToHttp(uri))
+      //       .then((res) => res.json())
+      //       .catch(() => ({}))
+
+      //     return {
+      //       tokenId: Number(id),
+      //       metadata: meta,
+      //     }
+      //   }),
+      // )
       const nftData = await Promise.all(
         tokenIds.map(async (id) => {
-          const uri = await nftRead.tokenURI(id).catch(() => '')
+          try {
+            const uri = await nftRead.tokenURI(id)
 
-          const meta = await fetch(ipfsToHttp(uri))
-            .then((res) => res.json())
-            .catch(() => ({}))
+            // ✅ fetch actual metadata (THIS IS THE REAL FIX)
+            const res = await fetch(ipfsToHttp(uri))
+            const meta = await res.json()
 
-          return {
-            tokenId: Number(id),
-            metadata: meta,
+            return {
+              tokenId: Number(id),
+              metadata: meta,
+            }
+          } catch (err) {
+            console.error('NFT load error:', err)
+
+            // ✅ fallback (no UI change)
+            return {
+              tokenId: Number(id),
+              metadata: {
+                image: '',
+                attributes: [{ trait_type: 'Tier', value: 1 }],
+              },
+            }
           }
         }),
       )
+      setNfts(nftData)
 
       const cData = await Promise.all(
         charityAddrs.map(async (a) => {

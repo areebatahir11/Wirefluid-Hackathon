@@ -1,19 +1,26 @@
 'use client'
 import { useEffect, useRef } from 'react'
 
-// Pure canvas confetti — no library needed
 export default function Confetti({ active }) {
   const canvasRef = useRef(null)
   const animRef = useRef(null)
   const pieces = useRef([])
 
   useEffect(() => {
-    if (!active) return
     const canvas = canvasRef.current
     if (!canvas) return
-    const ctx = canvas.getContext('2d')
+
+    if (!active) {
+      cancelAnimationFrame(animRef.current)
+      const ctx = canvas.getContext('2d')
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+      pieces.current = []
+      return
+    }
+
     canvas.width = window.innerWidth
     canvas.height = window.innerHeight
+    const ctx = canvas.getContext('2d')
 
     const colors = [
       '#00ff88',
@@ -24,7 +31,6 @@ export default function Confetti({ active }) {
       '#00ffcc',
     ]
 
-    // Spawn confetti pieces
     pieces.current = Array.from({ length: 120 }, () => ({
       x: Math.random() * canvas.width,
       y: Math.random() * canvas.height * 0.3 - 50,
@@ -47,7 +53,7 @@ export default function Confetti({ active }) {
         alive = true
         p.x += p.vx
         p.y += p.vy
-        p.vy += 0.12 // gravity
+        p.vy += 0.12
         p.rot += p.vrot
         if (p.y > canvas.height * 0.7) p.opacity -= 0.025
 
@@ -60,14 +66,15 @@ export default function Confetti({ active }) {
         ctx.restore()
       })
 
-      if (alive) animRef.current = requestAnimationFrame(draw)
+      if (alive) {
+        animRef.current = requestAnimationFrame(draw)
+      }
     }
 
     animRef.current = requestAnimationFrame(draw)
+
     return () => cancelAnimationFrame(animRef.current)
   }, [active])
-
-  if (!active) return null
 
   return (
     <canvas
@@ -79,6 +86,7 @@ export default function Confetti({ active }) {
         pointerEvents: 'none',
         width: '100%',
         height: '100%',
+        display: active ? 'block' : 'none',
       }}
     />
   )
