@@ -75,29 +75,36 @@ export default function Profile() {
         tokenIds.map(async (id) => {
           try {
             const uri = await nftRead.tokenURI(id)
+            const imageUrl = ipfsToHttp(uri)
 
-            // ✅ fetch actual metadata (THIS IS THE REAL FIX)
-            const res = await fetch(ipfsToHttp(uri))
-            const meta = await res.json()
+            let meta = { image: imageUrl, attributes: [] }
+
+            try {
+              const res = await fetch(imageUrl)
+              const contentType = res.headers.get('content-type')
+
+              if (res.ok && contentType?.includes('application/json')) {
+                const json = await res.json()
+                meta = {
+                  ...json,
+                  image: json.image ? ipfsToHttp(json.image) : imageUrl,
+                }
+              }
+            } catch (e) {}
 
             return {
               tokenId: Number(id),
               metadata: meta,
             }
           } catch (err) {
-            console.error('NFT load error:', err)
-
-            // ✅ fallback (no UI change)
             return {
               tokenId: Number(id),
-              metadata: {
-                image: '',
-                attributes: [{ trait_type: 'Tier', value: 1 }],
-              },
+              metadata: { image: '', attributes: [] },
             }
           }
         }),
       )
+
       setNfts(nftData)
 
       const cData = await Promise.all(
@@ -106,6 +113,7 @@ export default function Profile() {
           return { addr: a, name: info.name, received: info.totalReceived }
         }),
       )
+
       setCharities(cData)
     } catch (e) {
       console.error(e)

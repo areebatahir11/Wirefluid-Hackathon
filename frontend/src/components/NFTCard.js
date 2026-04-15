@@ -44,9 +44,7 @@ export default function NFTCard({ tokenId, metadata, onUpgrade, upgrading }) {
         ? process.env.NEXT_PUBLIC_SILVER_URI
         : process.env.NEXT_PUBLIC_GOLD_URI
 
-  // metadata.image can be ipfs:// or https:// — ipfsToHttp handles both
-
-  const rawImage = metadata?.image || fallbackUri || ''
+  const rawImage = metadata?.image || metadata?.image_url || fallbackUri || ''
   const imgUrl = ipfsToHttp(rawImage)
 
   const mintedAt =
