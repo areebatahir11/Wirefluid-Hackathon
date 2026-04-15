@@ -58,14 +58,18 @@ export default function Profile() {
 
       const nftData = await Promise.all(
         tokenIds.map(async (id) => {
-          const [meta, uri] = await Promise.all([
-            nftRead.getNftMetadata(id),
-            nftRead.tokenURI(id).catch(() => ''),
-          ])
-          return { tokenId: Number(id), metadata: { ...meta, tokenURI: uri } }
+          const uri = await nftRead.tokenURI(id).catch(() => '')
+
+          const meta = await fetch(ipfsToHttp(uri))
+            .then((res) => res.json())
+            .catch(() => ({}))
+
+          return {
+            tokenId: Number(id),
+            metadata: meta,
+          }
         }),
       )
-      setNfts(nftData)
 
       const cData = await Promise.all(
         charityAddrs.map(async (a) => {
@@ -121,7 +125,7 @@ export default function Profile() {
       setBusyFor(`mint_${matchId}`, true)
       await ensureCorrectNetwork()
       const core = await getCoreContract()
-      const tx = await core.mintPredictorNFT(matchId)
+      const tx = await core.mintPredictorNft(matchId)
       toast.info('Minting NFT badge...')
       await tx.wait()
       setShowConfetti(true)
@@ -140,7 +144,7 @@ export default function Profile() {
       setBusyFor(`upgrade_${tokenId}`, true)
       await ensureCorrectNetwork()
       const core = await getCoreContract()
-      const tx = await core.upgradeNFT(tokenId)
+      const tx = await core.upgradeNft(tokenId)
       toast.info('Upgrading NFT...')
       await tx.wait()
       setShowConfetti(true)

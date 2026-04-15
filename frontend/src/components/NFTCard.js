@@ -30,9 +30,10 @@ const TIER_CFG = {
 
 export default function NFTCard({ tokenId, metadata, onUpgrade, upgrading }) {
   const tier = Number(metadata?.tier)
+
   const cfg = TIER_CFG[tier] || TIER_CFG[1]
 
-  // 🔥 FIXED IMAGE LOGIC (metadata + env fallback)
+  // ✅ ENV fallback (FIXED)
   const fallback =
     tier === 1
       ? process.env.NEXT_PUBLIC_BRONZE_URI
@@ -40,7 +41,10 @@ export default function NFTCard({ tokenId, metadata, onUpgrade, upgrading }) {
         ? process.env.NEXT_PUBLIC_SILVER_URI
         : process.env.NEXT_PUBLIC_GOLD_URI
 
-  const imgUrl = ipfsToHttp(metadata?.image || fallback || '')
+  // ✅ Correct image field (IMPORTANT)
+  const rawImage = metadata?.image || fallback || ''
+
+  const imgUrl = rawImage?.startsWith('http') ? rawImage : ipfsToHttp(rawImage)
 
   const date = new Date(
     Number(metadata?.mintedAt || 0) * 1000,
@@ -60,7 +64,6 @@ export default function NFTCard({ tokenId, metadata, onUpgrade, upgrading }) {
         border: `1px solid ${cfg.color}38`,
       }}
     >
-      {/* Top stripe */}
       <div
         style={{
           position: 'absolute',
@@ -72,7 +75,6 @@ export default function NFTCard({ tokenId, metadata, onUpgrade, upgrading }) {
         }}
       />
 
-      {/* NFT image or emoji placeholder */}
       <div
         style={{
           width: '100%',
@@ -99,7 +101,8 @@ export default function NFTCard({ tokenId, metadata, onUpgrade, upgrading }) {
               borderRadius: 9,
             }}
             onError={(e) => {
-              e.currentTarget.src = ''
+              console.log('Image failed:', imgUrl)
+              e.currentTarget.style.display = 'none'
             }}
           />
         ) : (
@@ -114,49 +117,27 @@ export default function NFTCard({ tokenId, metadata, onUpgrade, upgrading }) {
         )}
       </div>
 
-      {/* Info */}
       <div style={{ textAlign: 'center' }}>
-        <div
-          style={{
-            fontSize: '.6rem',
-            fontFamily: "'Orbitron',monospace",
-            letterSpacing: '.12em',
-            color: 'rgba(180,210,230,.4)',
-            marginBottom: '.2rem',
-          }}
-        >
+        <div style={{ fontSize: '.6rem', color: 'rgba(180,210,230,.4)' }}>
           TOKEN #{tokenId}
         </div>
-        <div
-          style={{
-            fontSize: '1rem',
-            fontWeight: 700,
-            color: cfg.color,
-            fontFamily: "'Rajdhani',sans-serif",
-            marginBottom: '.35rem',
-          }}
-        >
+
+        <div style={{ fontSize: '1rem', fontWeight: 700, color: cfg.color }}>
           {cfg.name} Predictor
         </div>
-        <div
-          style={{
-            fontSize: '.75rem',
-            color: 'rgba(180,210,230,.45)',
-            marginBottom: '.75rem',
-          }}
-        >
+
+        <div style={{ fontSize: '.75rem', color: 'rgba(180,210,230,.45)' }}>
           {Number(metadata?.predictionsAtMint || 0)} predictions
           <br />
           <span style={{ fontSize: '.65rem' }}>Minted {date}</span>
         </div>
 
-        {/* Upgrade or max badge */}
         {cfg.next ? (
           <button
             className="btn-primary"
             onClick={() => onUpgrade(tokenId)}
             disabled={upgrading}
-            style={{ width: '100%', fontSize: '.65rem', padding: '.5rem' }}
+            style={{ width: '100%' }}
           >
             {upgrading ? (
               <span className="spinner" />
@@ -165,20 +146,7 @@ export default function NFTCard({ tokenId, metadata, onUpgrade, upgrading }) {
             )}
           </button>
         ) : (
-          <div
-            style={{
-              padding: '.45rem',
-              background: 'rgba(255,215,0,.07)',
-              border: '1px solid rgba(255,215,0,.25)',
-              borderRadius: 6,
-              fontSize: '.65rem',
-              color: 'var(--neon-gold)',
-              fontFamily: "'Orbitron',monospace",
-              letterSpacing: '.06em',
-            }}
-          >
-            ✨ MAX TIER
-          </div>
+          <div>✨ MAX TIER</div>
         )}
       </div>
     </div>

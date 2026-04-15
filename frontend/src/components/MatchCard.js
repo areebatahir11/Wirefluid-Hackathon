@@ -655,7 +655,7 @@ export default function MatchCard({ match, account, isAdmin, onResolved }) {
               fontSize: '.88rem',
             }}
           >
-            🔒 Predictions are closed — your stake has gone to charity
+            🔒 Predictions are closed — you need to wait for results
           </div>
         )}
 

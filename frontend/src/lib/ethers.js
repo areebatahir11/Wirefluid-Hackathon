@@ -29,11 +29,17 @@ export const NFT_URIS = {
 }
 
 // Convert ipfs:// to https:// for <img> tags
-export const ipfsToHttp = (uri) => {
-  if (!uri || uri === '') return null
+export function ipfsToHttp(uri) {
+  if (!uri) return ''
+
+  // already http
+  if (uri.startsWith('http')) return uri
+
+  // ipfs:// → https://ipfs.io/ipfs/
   if (uri.startsWith('ipfs://')) {
-    return `https://gateway.pinata.cloud/ipfs/${uri.slice(7)}`
+    return uri.replace('ipfs://', 'https://ipfs.io/ipfs/')
   }
+
   return uri
 }
 
