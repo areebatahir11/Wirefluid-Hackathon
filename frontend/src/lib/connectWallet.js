@@ -1,7 +1,7 @@
 'use client'
-
-import { useAccount } from '../context/AccountProvider'
-import { getProvider, getOwner } from '../lib/ethers'
+// lib/connectWallet.js
+import { useAccount } from './AccountContext'
+import { getProvider, ensureCorrectNetwork } from './ethers'
 
 export default function ConnectWallet() {
   const { account, setAccount, isOwner } = useAccount()
@@ -12,40 +12,51 @@ export default function ConnectWallet() {
         alert('Please install MetaMask')
         return
       }
-
+      await ensureCorrectNetwork()
       const accounts = await getProvider().send('eth_requestAccounts', [])
-
-      const user = accounts[0]
-      setAccount(user)
-
-      const owner = await getOwner()
-      console.log(owner)
+      await setAccount(accounts[0])
     } catch (e) {
       console.error(e)
     }
   }
 
+  if (account) {
+    return (
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '.5rem',
+          padding: '.4rem 1rem',
+          borderRadius: 8,
+          border: isOwner
+            ? '1px solid rgba(168,85,247,.4)'
+            : '1px solid rgba(0,212,255,.25)',
+          background: isOwner ? 'rgba(168,85,247,.1)' : 'rgba(0,212,255,.06)',
+          fontFamily: "'Orbitron',monospace",
+          fontSize: '.72rem',
+          fontWeight: 700,
+          color: isOwner ? '#c084fc' : 'var(--neon-blue)',
+          letterSpacing: '.04em',
+        }}
+      >
+        {isOwner ? '⚙️ ADMIN · ' : ''}
+        {account.slice(0, 6)}...{account.slice(-4)}
+      </div>
+    )
+  }
+
   return (
-    <div className="flex items-center gap-3">
-      {account ? (
-        <div
-          className={`px-4 py-2 rounded-xl backdrop-blur ${
-            isOwner
-              ? 'bg-purple-500/20 text-purple-300'
-              : 'bg-green-500/20 text-green-400'
-          }`}
-        >
-          {isOwner ? 'ADMIN • ' : ''}
-          {account.slice(0, 6)}...{account.slice(-4)}
-        </div>
-      ) : (
-        <button
-          onClick={connectWallet}
-          className="px-4 py-2 bg-blue-500 text-white rounded-xl hover:bg-blue-600"
-        >
-          Connect Wallet
-        </button>
-      )}
-    </div>
+    <button
+      onClick={connectWallet}
+      className="btn-primary btn-glow-border"
+      style={{
+        fontSize: '.78rem',
+        padding: '.5rem 1.4rem',
+        letterSpacing: '.06em',
+      }}
+    >
+      Connect Wallet →
+    </button>
   )
 }

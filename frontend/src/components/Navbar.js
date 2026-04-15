@@ -3,7 +3,6 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import ConnectWallet from '../lib/connectWallet'
-import { useAccount } from '../lib/AccountContext'
 
 const NAV = [
   { href: '/', label: 'Home' },
@@ -13,7 +12,6 @@ const NAV = [
 
 export default function Navbar() {
   const pathname = usePathname()
-  const { account, setAccount } = useAccount()
 
   return (
     <nav
@@ -66,7 +64,7 @@ export default function Navbar() {
         </span>
       </Link>
 
-      {/* Links */}
+      {/* Nav links */}
       <div style={{ display: 'flex', gap: '.25rem' }}>
         {NAV.map((n) => {
           const active = pathname === n.href
@@ -96,8 +94,8 @@ export default function Navbar() {
         })}
       </div>
 
-      {/* Wallet */}
-      <ConnectWallet account={account} setAccount={setAccount} />
+      {/* Wallet — no props needed, reads from context */}
+      <ConnectWallet />
     </nav>
   )
 }

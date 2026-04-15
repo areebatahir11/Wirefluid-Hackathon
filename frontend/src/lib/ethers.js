@@ -1,5 +1,5 @@
 import { ethers } from 'ethers'
-
+//lib/ethers.js
 import CoreABIFull from '../abi/Core.json'
 import RewardNFTABIFull from '../abi/RewardNFT.json'
 import DonationABIFull from '../abi/Donation.json'

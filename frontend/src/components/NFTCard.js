@@ -29,17 +29,26 @@ const TIER_CFG = {
 }
 
 export default function NFTCard({ tokenId, metadata, onUpgrade, upgrading }) {
-  const tier = Number(metadata.tier)
+  const tier = Number(metadata?.tier)
   const cfg = TIER_CFG[tier] || TIER_CFG[1]
-  const imgUrl = ipfsToHttp(metadata.tokenURI || '') // if you fetch tokenURI separately
-  const date = new Date(Number(metadata.mintedAt) * 1000).toLocaleDateString(
-    'en-US',
-    {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    },
-  )
+
+  // 🔥 FIXED IMAGE LOGIC (metadata + env fallback)
+  const fallback =
+    tier === 1
+      ? process.env.NEXT_PUBLIC_BRONZE_URI
+      : tier === 2
+        ? process.env.NEXT_PUBLIC_SILVER_URI
+        : process.env.NEXT_PUBLIC_GOLD_URI
+
+  const imgUrl = ipfsToHttp(metadata?.image || fallback || '')
+
+  const date = new Date(
+    Number(metadata?.mintedAt || 0) * 1000,
+  ).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  })
 
   return (
     <div
@@ -90,7 +99,7 @@ export default function NFTCard({ tokenId, metadata, onUpgrade, upgrading }) {
               borderRadius: 9,
             }}
             onError={(e) => {
-              e.target.style.display = 'none'
+              e.currentTarget.src = ''
             }}
           />
         ) : (
@@ -136,7 +145,7 @@ export default function NFTCard({ tokenId, metadata, onUpgrade, upgrading }) {
             marginBottom: '.75rem',
           }}
         >
-          {Number(metadata.predictionsAtMint)} predictions
+          {Number(metadata?.predictionsAtMint || 0)} predictions
           <br />
           <span style={{ fontSize: '.65rem' }}>Minted {date}</span>
         </div>

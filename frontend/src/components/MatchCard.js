@@ -195,7 +195,7 @@ export default function MatchCard({ match, account, isAdmin, onResolved }) {
       setMinting(true)
       await ensureCorrectNetwork()
       const core = await getCoreContract()
-      const tx = await core.mintPredictorNFT(match.matchId)
+      const tx = await core.mintPredictorNft(match.matchId)
       toast.info('Minting your badge...')
       await tx.wait()
       setMinted(true)
