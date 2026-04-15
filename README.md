@@ -7,8 +7,7 @@
 
 ## 🌍 Live Links
 
-* 🔗 **Frontend (Vercel):** *[Add your Vercel link here]*
-* 🎥 **Demo Video:** *[Add your video link here]*
+* 🎥 **Demo Video:** https://drive.google.com/file/d/1cI4AleQoQph9J3Mqxyx2u8q2-QSvMNce/view?usp=drive_link
 
 ---
 
