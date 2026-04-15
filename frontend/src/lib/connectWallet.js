@@ -40,7 +40,7 @@ export default function ConnectWallet() {
           letterSpacing: '.04em',
         }}
       >
-        {isOwner ? '⚙️ ADMIN · ' : ''}
+        {isOwner ? '⚙️ WALLET · ' : ''}
         {account.slice(0, 6)}...{account.slice(-4)}
       </div>
     )

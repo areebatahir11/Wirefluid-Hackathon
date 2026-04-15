@@ -80,13 +80,6 @@ export default function LandingPage() {
         }}
       />
 
-      {/* Wallet button top-right (outside Navbar so it floats on hero) */}
-      {mounted && (
-        <div style={{ position: 'fixed', top: 16, right: 24, zIndex: 200 }}>
-          <ConnectWallet />
-        </div>
-      )}
-
       {/* Content */}
       <div
         style={{
@@ -279,6 +272,50 @@ export default function LandingPage() {
               ),
             )}
           </div>
+        </div>
+        {/* TEAMS STRIP */}
+        <div
+          style={{
+            marginTop: '3.5rem',
+            width: '100%',
+            maxWidth: '900px',
+            display: 'flex',
+            justifyContent: 'center',
+            flexWrap: 'wrap',
+            gap: '.5rem',
+          }}
+        >
+          {[
+            { name: 'Lahore Qalanders', emoji: '🦁', color: '#00a651' },
+            { name: 'Karachi Kings', emoji: '👑', color: '#0077cc' },
+            { name: 'Islamabad United', emoji: '⚡', color: '#e31837' },
+            { name: 'Queta Gladiators', emoji: '🦅', color: '#1c1c6e' },
+            { name: 'Multan Sultans', emoji: '🔮', color: '#7b2d8b' },
+            { name: 'Peshawar Zalmi', emoji: '⚔️', color: '#f7941d' },
+            { name: 'Rawalpindi Pindiz', emoji: '🔥', color: '#ff4d4d' },
+          ].map((team) => (
+            <div
+              key={team.name}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '.35rem',
+                padding: '.35rem .7rem',
+                borderRadius: 999,
+                background: `${team.color}15`,
+                border: `1px solid ${team.color}55`,
+                fontFamily: "'Orbitron', monospace",
+                fontSize: '.65rem',
+                fontWeight: 700,
+                color: team.color,
+                letterSpacing: '.05em',
+                backdropFilter: 'blur(6px)',
+              }}
+            >
+              <span>{team.emoji}</span>
+              <span>{team.name}</span>
+            </div>
+          ))}
         </div>
       </div>
     </div>

@@ -24,21 +24,21 @@ export function AccountProvider({ children }) {
     }
   }
 
-  // INIT: check if already connected on page load
-  useEffect(() => {
-    const init = async () => {
-      if (typeof window === 'undefined' || !window.ethereum) return
-      try {
-        const accounts = await getProvider().send('eth_accounts', [])
-        if (accounts.length > 0) {
-          await setAccount(accounts[0])
-        }
-      } catch (e) {
-        console.error('Init wallet error:', e)
-      }
-    }
-    init()
-  }, [])
+  //I want to show connect wallet button manually
+  // useEffect(() => {
+  //   const init = async () => {
+  //     if (typeof window === 'undefined' || !window.ethereum) return
+  //     try {
+  //       const accounts = await getProvider().send('eth_accounts', [])
+  //       if (accounts.length > 0) {
+  //         await setAccount(accounts[0])
+  //       }
+  //     } catch (e) {
+  //       console.error('Init wallet error:', e)
+  //     }
+  //   }
+  //   init()
+  // }, [])
 
   // LISTENER: wallet switch
   useEffect(() => {

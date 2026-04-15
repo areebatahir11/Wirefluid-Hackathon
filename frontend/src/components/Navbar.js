@@ -83,8 +83,27 @@ export default function Navbar() {
                   border: active
                     ? '1px solid rgba(0,212,255,.22)'
                     : '1px solid transparent',
-                  transition: 'all .2s',
+                  transition: 'all .25s ease',
                   cursor: 'pointer',
+                  position: 'relative',
+                }}
+                onMouseEnter={(e) => {
+                  if (!active) {
+                    e.currentTarget.style.border =
+                      '1px solid rgba(0,212,255,.35)'
+                    e.currentTarget.style.background = 'rgba(0,212,255,.05)'
+                    e.currentTarget.style.boxShadow =
+                      '0 0 8px rgba(0,212,255,.25)'
+                    e.currentTarget.style.color = 'var(--neon-blue)'
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!active) {
+                    e.currentTarget.style.border = '1px solid transparent'
+                    e.currentTarget.style.background = 'transparent'
+                    e.currentTarget.style.boxShadow = 'none'
+                    e.currentTarget.style.color = 'rgba(180,210,230,.6)'
+                  }
                 }}
               >
                 {n.label}
